@@ -27,6 +27,13 @@ const (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+// run wires the dependencies and drives the keeper to completion, returning
+// the process exit code. It is separated from main so that deferred cleanup
+// (stopping the signal-notify context) always runs before the process exits.
+func run() int {
 	interval := flag.Duration("interval", defaultInterval, "how often to nudge the cursor (e.g. 10s, 30s, 1m)")
 	quiet := flag.Bool("quiet", false, "do not write logs to stdout")
 	flag.Parse()
@@ -45,6 +52,8 @@ func main() {
 
 	if err := keeper.Run(ctx); err != nil {
 		logger.Error("sysmon exited with error", "err", err)
-		os.Exit(1)
+		return 1
 	}
+
+	return 0
 }

@@ -5,7 +5,7 @@ PIDFILE := /tmp/$(BINARY).pid
 
 ## build: build the binary
 build:
-	go build -o $(BINARY) .
+	go build -o $(BINARY) ./cmd/sysmon
 
 ## run: build and run in the current terminal (Ctrl+C to quit)
 run: build

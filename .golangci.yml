@@ -20,6 +20,8 @@ formatters:
     goimports:
       local-prefixes:
         - sysmon
+    gofumpt:
+      module-path: sysmon
 
 linters:
   enable:

@@ -7,11 +7,11 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
-
 	"sysmon/internal/activity/port/mock"
 	"sysmon/internal/activity/service"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestKeeperService_NudgesPerTick(t *testing.T) {
