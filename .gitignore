@@ -7,3 +7,6 @@ sysmon
 
 # IDE
 .idea/
+
+# GSD planning docs (local-only)
+.planning/
