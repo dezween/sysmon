@@ -36,18 +36,18 @@
 - No linter config present (no .golangci.yml, no gofmt flag overrides)
 
 **Comment Style:**
-- Russian language (matching project's primary documentation language)
+- English (the project's documentation language)
 - Line comments (`//`) for brief explanations
 - Block comments (`/* ... */`) for C preamble
 
 **Comment Examples from code:**
 ```go
-// nudge двигает курсор на (dx, dy) от текущей позиции и постит настоящее
-// событие MouseMoved — именно оно сбрасывает системный таймер бездействия,
-// в отличие от простого перемещения курсора.
+// nudge moves the cursor by (dx, dy) from its current position and posts a real
+// MouseMoved event -- that event is what resets the system idle timer, unlike a
+// plain cursor reposition.
 
-// Небольшое смещение туда-обратно: курсор фактически на месте,
-// но система видит движение.
+// Small offset there and back: the cursor stays effectively in
+// place, but the system sees movement.
 ```
 
 ## Import Organization
@@ -147,8 +147,8 @@ import "C"
 
 **Flag Definition (main.go:33-35):**
 ```go
-interval := flag.Duration("interval", 10*time.Second, "как часто дёргать курсор...")
-quiet := flag.Bool("quiet", false, "не писать логи в stdout")
+interval := flag.Duration("interval", 10*time.Second, "how often to nudge the cursor...")
+quiet := flag.Bool("quiet", false, "do not write logs to stdout")
 flag.Parse()
 ```
 

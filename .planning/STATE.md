@@ -53,7 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- Hexagonal architecture (mirror minitok.go) chosen for testability and portability — pending validation via Phase 1.
+- Hexagonal architecture (like a larger Go monorepo) chosen for testability and portability — pending validation via Phase 1.
 - pidfile-based start/stop in Makefile retained as-is (not touched by this refactor).
 
 ### Pending Todos

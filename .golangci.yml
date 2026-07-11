@@ -1,7 +1,7 @@
 # golangci-lint v2 config for sysmon.
-# Style modeled on the minitok.go golden config (maratori), trimmed to a small
-# CLI: minitok-specific custom linters (moneylint/httpxlint/walletledgersqllint)
-# and web/DB/prometheus linters are omitted as irrelevant here.
+# Style modeled on a strict golden config (maratori), trimmed of project-specific
+# custom linters and web/DB linters: those and the prometheus linters are omitted
+# as irrelevant to a small CLI.
 version: "2"
 
 run:

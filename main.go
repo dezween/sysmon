@@ -8,9 +8,9 @@ package main
 #cgo LDFLAGS: -framework ApplicationServices -framework CoreGraphics
 #include <ApplicationServices/ApplicationServices.h>
 
-// nudge двигает курсор на (dx, dy) от текущей позиции и постит настоящее
-// событие MouseMoved — именно оно сбрасывает системный таймер бездействия,
-// в отличие от простого перемещения курсора.
+// nudge moves the cursor by (dx, dy) from its current position and posts a real
+// MouseMoved event -- that event is what resets the system idle timer, unlike a
+// plain cursor reposition.
 static void nudge(int dx, int dy) {
     CGEventRef cur = CGEventCreate(NULL);
     CGPoint p = CGEventGetLocation(cur);
@@ -41,8 +41,8 @@ const (
 )
 
 func main() {
-	interval := flag.Duration("interval", defaultInterval, "как часто дёргать курсор (напр. 10s, 30s, 1m)")
-	quiet := flag.Bool("quiet", false, "не писать логи в stdout")
+	interval := flag.Duration("interval", defaultInterval, "how often to nudge the cursor (e.g. 10s, 30s, 1m)")
+	quiet := flag.Bool("quiet", false, "do not write logs to stdout")
 	flag.Parse()
 
 	if *quiet {
@@ -56,20 +56,20 @@ func main() {
 	defer ticker.Stop()
 
 	if !*quiet {
-		log.Printf("sysmon: активность каждые %s (Ctrl+C для выхода)", *interval)
+		log.Printf("sysmon: active every %s (Ctrl+C to quit)", *interval)
 	}
 
 	for {
 		select {
 		case <-ticker.C:
-			// Небольшое смещение туда-обратно: курсор фактически на месте,
-			// но система видит движение.
+			// Small offset there and back: the cursor stays effectively in
+			// place, but the system sees movement.
 			C.nudge(1, 0)
 			time.Sleep(nudgePause)
 			C.nudge(-1, 0)
 		case <-sig:
 			if !*quiet {
-				log.Println("sysmon: остановлен")
+				log.Println("sysmon: stopped")
 			}
 			return
 		}

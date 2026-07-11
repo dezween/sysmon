@@ -9,7 +9,7 @@ Milestone: v1 — Hexagonal Refactor
 ## Phase Details
 
 ### Phase 1: Hexagonal Refactor
-**Goal**: The codebase is organized as ports & adapters (mirroring `minitok.go`'s pattern) so that the activity-keeping logic is unit-testable and platform code is isolated, while every existing runtime behavior (flags, mouse-move event, clean shutdown, Makefile targets) keeps working exactly as before.
+**Goal**: The codebase is organized as ports & adapters (following the pattern of a larger Go monorepo) so that the activity-keeping logic is unit-testable and platform code is isolated, while every existing runtime behavior (flags, mouse-move event, clean shutdown, Makefile targets) keeps working exactly as before.
 **Depends on**: Nothing (first phase)
 **Requirements**: ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05, TEST-01, BUILD-01, BUILD-02
 **Success Criteria** (what must be TRUE):
