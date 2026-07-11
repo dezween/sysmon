@@ -41,7 +41,7 @@ func main() {
 // (stopping the signal-notify context) always runs before the process exits.
 func run() int {
 	interval := flag.Duration("interval", defaultInterval, "how often to nudge the cursor (e.g. 10s, 30s, 1m)")
-	quiet := flag.Bool("quiet", false, "do not write logs to stdout")
+	quiet := flag.Bool("quiet", false, "suppress routine logs; still print warnings and errors")
 	flag.Parse()
 
 	level := slog.LevelInfo
