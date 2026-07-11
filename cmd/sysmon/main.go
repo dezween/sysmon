@@ -58,10 +58,20 @@ func run() int {
 		logger.Error("invalid interval", "err", err, "value", interval.String())
 		return exitUsage
 	}
+	// nudgeOffset is a positive compile-time constant, so this never errors
+	// today; it still goes through the domain constructor so the offset is
+	// validated the same way as the interval.
 	offset, err := domain.NewOffset(nudgeOffset)
 	if err != nil {
 		logger.Error("invalid offset", "err", err, "value", nudgeOffset)
 		return exitUsage
+	}
+
+	// Preflight: without Accessibility permission macOS silently drops the
+	// synthetic mouse events, so warn once at startup rather than looking like
+	// a no-op. This is logged at Warn so it shows even under -quiet.
+	if !adapter.AccessibilityTrusted() {
+		logger.Warn("accessibility permission not granted; mouse events will be ignored until you enable sysmon's terminal in System Settings -> Privacy & Security -> Accessibility")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
