@@ -1,0 +1,92 @@
+# golangci-lint v2 config for sysmon.
+# Style modeled on the minitok.go golden config (maratori), trimmed to a small
+# CLI: minitok-specific custom linters (moneylint/httpxlint/walletledgersqllint)
+# and web/DB/prometheus linters are omitted as irrelevant here.
+version: "2"
+
+run:
+  # cgo + CoreGraphics: build tags matter; analyze the darwin build.
+  build-tags:
+    - darwin
+
+issues:
+  max-same-issues: 50
+
+formatters:
+  enable:
+    - goimports
+    - gofumpt
+  settings:
+    goimports:
+      local-prefixes:
+        - sysmon
+
+linters:
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - copyloopvar
+    - cyclop
+    - depguard
+    - dupl
+    - durationcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - forbidigo
+    - funlen
+    - gocheckcompilerdirectives
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - goprintffuncname
+    - gosec
+    - intrange
+    - makezero
+    - mnd
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - perfsprint
+    - predeclared
+    - reassign
+    - revive
+    - testifylint
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+  settings:
+    depguard:
+      rules:
+        main:
+          list-mode: lax
+          allow:
+            - $gostd
+            - sysmon
+    funlen:
+      lines: 80
+      statements: 50
+    cyclop:
+      max-complexity: 15
+  exclusions:
+    generated: strict
+    rules:
+      # Tests may be longer, use magic numbers, and skip some doc rules.
+      - path: _test\.go
+        linters:
+          - funlen
+          - mnd
+          - dupl
+          - gocognit
+          - gocyclo

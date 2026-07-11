@@ -1,3 +1,7 @@
+// Command sysmon keeps macOS "active" by posting a real mouse-move event on a
+// fixed interval, which resets the system idle timer so the screen does not
+// sleep. The cursor is nudged one pixel and back, so it stays effectively in
+// place.
 package main
 
 /*
@@ -29,8 +33,15 @@ import (
 	"time"
 )
 
+const (
+	// defaultInterval is how often the cursor is nudged by default.
+	defaultInterval = 10 * time.Second
+	// nudgePause is the delay between the forward and backward nudge.
+	nudgePause = 40 * time.Millisecond
+)
+
 func main() {
-	interval := flag.Duration("interval", 10*time.Second, "как часто дёргать курсор (напр. 10s, 30s, 1m)")
+	interval := flag.Duration("interval", defaultInterval, "как часто дёргать курсор (напр. 10s, 30s, 1m)")
 	quiet := flag.Bool("quiet", false, "не писать логи в stdout")
 	flag.Parse()
 
@@ -54,7 +65,7 @@ func main() {
 			// Небольшое смещение туда-обратно: курсор фактически на месте,
 			// но система видит движение.
 			C.nudge(1, 0)
-			time.Sleep(40 * time.Millisecond)
+			time.Sleep(nudgePause)
 			C.nudge(-1, 0)
 		case <-sig:
 			if !*quiet {
