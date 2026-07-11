@@ -55,7 +55,7 @@ nearly free in resource use.
 ## Constraints
 
 - **Tech stack**: Go 1.26 + cgo, macOS only (arm64) — uses CoreGraphics/ApplicationServices C API.
-- **Dependencies**: standard library only — new third-party deps require justification.
+- **Dependencies**: runtime/production is standard-library only (zero third-party in the binary — reason `log/slog` was chosen). Test-only deps are allowed: `testify` (assertions), `go.uber.org/mock`/mockgen (mocks from interfaces), `testcontainers` (integration tests only).
 - **Platform**: requires Xcode Command Line Tools and macOS Accessibility permission.
 - **Resource use**: must stay lightweight — near-zero idle CPU, tiny memory footprint, battery-friendly (runs for hours in background).
 
@@ -71,6 +71,7 @@ nearly free in resource use.
 | Structured logging via stdlib log/slog | Levels/structure without breaking the zero-dep constraint (vs zerolog/zap) | — Pending |
 | CI on macos-latest (build/lint/test) | cgo + CoreGraphics only compiles on macOS | ✓ Good |
 | golangci-lint v2 (strict golden config, trimmed) | Consistent strict linting, minus project-specific/web linters | ✓ Good |
+| Test stack: testify + mockgen (from interfaces) + testcontainers | Standard Go test tooling; mocks generated, not hand-written (test-only deps, binary stays zero-dep) | — Pending |
 
 ## Evolution
 

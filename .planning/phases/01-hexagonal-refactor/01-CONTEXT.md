@@ -49,15 +49,28 @@ adapters (all v2/deferred).
   output. Lifecycle events (start with interval, stop) logged with structure.
 - Zero third-party logger — this is the whole reason slog was chosen.
 
-### Testing (TEST-01)
-- Unit-test `KeeperService` with a **fake `Pointer`** (records Nudge calls). The
-  test asserts nudges occur per tick and that the loop stops on context cancel.
-- Test must NOT move the real mouse and must NOT require macOS Accessibility
-  permission — i.e. it never touches the `CGPointer` adapter.
-- Prefer an injectable interval / short interval so the test is fast and
-  deterministic; avoid real-time flakiness (consider a channel-driven or
-  injected tick, or a very short interval with a bounded wait).
+### Testing (TEST-01) — locked test stack
+- **Assertions: `testify`** (`github.com/stretchr/testify`) only.
+- **Mocks: `mockgen`** (`go.uber.org/mock`) generated **from the `Pointer`
+  interface** — NOT a hand-written fake (this overrides the research's
+  hand-written-fake suggestion, per user convention). Use a `//go:generate
+  mockgen ...` directive and commit the generated mock (e.g. a `mocks` package
+  or `port/mock_pointer.go`).
+- **Deterministic time: `testing/synctest`** (stdlib, Go 1.25+) to drive the
+  ticker without real-time flakiness. Composes with testify+mockgen: synctest
+  controls the clock, the mock records `Nudge` calls, testify asserts.
+- Test asserts nudges occur per tick and the loop stops on context cancel. It
+  must NOT move the real mouse and must NOT require macOS Accessibility — it
+  never touches the `CGPointer` adapter.
+- **`testcontainers`** is the convention for integration tests, but sysmon has
+  none — do NOT add it as a dependency.
 - `go test -race ./...` must pass (CI runs it).
+
+### Dependency policy clarification
+- The runtime/production binary stays **stdlib-only** (zero third-party) — this
+  is why `log/slog` was chosen.
+- **Test-only** deps are allowed and expected: `testify`, `go.uber.org/mock`
+  (mockgen). They live in `go.mod` but are not linked into the binary.
 
 ## Claude's Discretion
 - Exact domain type shape (`Interval`/`Offset` naming, whether Offset is a
