@@ -39,6 +39,10 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.8.0
+          # Build golangci-lint from source with the repo's Go toolchain so its
+          # build-Go matches go.mod's target (release binaries lag behind and
+          # refuse when target Go > their build Go).
+          install-mode: goinstall
 
   test:
     runs-on: macos-latest
