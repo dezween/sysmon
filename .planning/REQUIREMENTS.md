@@ -42,4 +42,11 @@ PROJECT.md; these requirements cover the restructure work.
 
 | REQ-ID | Phase |
 |--------|-------|
-| (pending roadmap) | |
+| ARCH-01 | Phase 1 |
+| ARCH-02 | Phase 1 |
+| ARCH-03 | Phase 1 |
+| ARCH-04 | Phase 1 |
+| ARCH-05 | Phase 1 |
+| TEST-01 | Phase 1 |
+| BUILD-01 | Phase 1 |
+| BUILD-02 | Phase 1 |

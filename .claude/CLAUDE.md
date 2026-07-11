@@ -1,0 +1,244 @@
+<!-- GSD:project-start source:PROJECT.md -->
+
+## Project
+
+**sysmon**
+
+A small local command-line utility written in Go for macOS. It keeps the machine
+"active" by posting a real mouse-move event every N seconds, resetting the system
+idle timer so the screen does not sleep and the user's presence status does not
+flip to idle. The cursor stays effectively in place (a 1px nudge and back). Built
+for a single user on their own Mac.
+
+**Core Value:** The machine reliably stays "active" — a real mouse event is delivered on a fixed
+interval and the OS idle timer is reset — while staying invisible (no window) and
+nearly free in resource use.
+
+### Constraints
+
+- **Tech stack**: Go 1.26 + cgo, macOS only (arm64) — uses CoreGraphics/ApplicationServices C API.
+- **Dependencies**: standard library only — new third-party deps require justification.
+- **Platform**: requires Xcode Command Line Tools and macOS Accessibility permission.
+- **Resource use**: must stay lightweight — near-zero idle CPU, tiny memory footprint, battery-friendly (runs for hours in background).
+
+<!-- GSD:project-end -->
+
+<!-- GSD:stack-start source:codebase/STACK.md -->
+
+## Technology Stack
+
+## Languages
+
+- Go 1.26.5 — Full application, enabled with cgo for system framework integration
+
+## Runtime
+
+- Go 1.26.5 (specified in `go.mod`)
+- Go modules
+- Lockfile: None (only `go.mod` with no external dependencies)
+
+## Frameworks
+
+- None (stdlib only)
+- Makefile — Build automation (targets: `build`, `run`, `start`, `stop`, `status`, `clean`)
+
+## Key Dependencies
+
+- None — Zero external Go dependencies. Uses only stdlib: `flag`, `log`, `os`, `os/signal`, `syscall`, `time`
+- cgo with macOS CoreGraphics (`-framework ApplicationServices -framework CoreGraphics`)
+
+## Configuration
+
+- Command-line flags:
+- cgo enabled by default
+- Xcode Command Line Tools required (`xcode-select --install`)
+
+## Platform Requirements
+
+- macOS (arm64)
+- Go 1.26.5
+- Xcode Command Line Tools (for cgo)
+- macOS 26+
+- arm64 (Apple Silicon)
+- Terminal.app or iTerm2 with Accessibility permission granted (macOS TCC)
+
+<!-- GSD:stack-end -->
+
+<!-- GSD:conventions-start source:CONVENTIONS.md -->
+
+## Conventions
+
+## Naming Patterns
+
+- Lowercase, single-word names: `main.go`, `go.mod`
+- Standard Go convention (PascalCase for exported)
+- `main()` — entry point
+- C functions referenced via cgo: `C.nudge()`
+- `interval` — Duration flag
+- `quiet` — Boolean flag
+- `sig` — Signal channel
+- `ticker` — *time.Ticker
+- `cur`, `move` — CGEventRef (C pointers)
+- `p`, `np` — CGPoint structs (current, new position)
+- None custom types defined (uses stdlib types: `time.Duration`, `chan os.Signal`, `*time.Ticker`)
+- `40 * time.Millisecond` — Delay between nudge directions (hard-coded for reproducibility of cursor position)
+- `1` — Pixel offset for nudge (hard-coded)
+
+## Code Style
+
+- Standard Go fmt (no explicit config required; `go fmt` applied)
+- No linter config present (no .golangci.yml, no gofmt flag overrides)
+- Russian language (matching project's primary documentation language)
+- Line comments (`//`) for brief explanations
+- Block comments (`/* ... */`) for C preamble
+
+## Import Organization
+
+## Error Handling
+
+- Minimal: flag parsing errors auto-handled by `flag` package (prints usage, exits)
+- Signal handling via channel (no error return)
+- cgo calls have no explicit error handling (rely on macOS default behavior: silent no-op if Accessibility not granted)
+
+## Logging
+
+- `log.Printf()` for startup message with interval value
+- `log.Println()` for shutdown message
+- Controlled by `-quiet` flag:
+- `main.go:48` — startup (interval value interned)
+- `main.go:61` — shutdown confirmation
+
+## Comments
+
+- Algorithm explanation: nudge mechanics and why (`main.go:7-9`, `main.go:54-55`)
+- Intent clarity: why Mouse Moved event is necessary vs simple cursor warp
+- Not applicable (Go, no type annotations at function level)
+
+## Function Design
+
+- `main()` — 34 lines (loop-heavy, acceptable for single-file app)
+- `nudge(dx, dy)` — 9 lines of C code (minimal, single responsibility)
+- `main()` — No parameters (uses global flag variables, channels)
+- `nudge(int dx, int dy)` — Two small integers (offset deltas)
+- `main()` — No return (entry point)
+- `nudge()` — No return (void C function)
+
+## Module Design
+
+- Only `main()` package entry point (no exported functions or types)
+- Not applicable (single file)
+
+## cgo Integration
+
+- cgo block at top of file (before Go imports)
+- C code isolated in C function (`nudge`)
+- C function called via `C.` prefix from Go
+- Manual C memory management (`CFRelease` calls)
+- Framework linking via `#cgo LDFLAGS`
+
+#cgo LDFLAGS: -framework ApplicationServices -framework CoreGraphics
+#include <ApplicationServices/ApplicationServices.h>
+
+## CLI Design
+
+- Uses stdlib `flag` package
+- Defaults: `-interval 10s`, `-quiet false`
+- Usage auto-generated by flag package
+
+<!-- GSD:conventions-end -->
+
+<!-- GSD:architecture-start source:ARCHITECTURE.md -->
+
+## Architecture
+
+## Current State vs Target
+
+## Current Architecture
+
+### As-Is: Flat Monolithic
+
+```
+
+```
+
+### Target: Hexagonal (Ports & Adapters)
+
+```
+
+```
+
+## Component Responsibilities
+
+| Component | Responsibility | File (Current) | File (Target) |
+|-----------|---|---|---|
+| Entry point | CLI flags, dependency injection, signal handling | `main.go:32` | `cmd/sysmon/main.go` |
+| Use case (Keeper) | Maintain activity: ticker loop, call Pointer.Nudge() on interval | `main.go:51-65` | `internal/activity/service/keeper_service.go` |
+| Port (Pointer) | Interface: abstract mouse movement | `main.go:10-19` (inline C code) | `internal/activity/port/pointer.go` |
+| Domain | Interval, Offset value objects, validation rules | Not separate | `internal/activity/domain/` |
+| Adapter (CGPointer) | Concrete: CoreGraphics implementation of Pointer | `main.go:3-20` (cgo block) | `internal/activity/adapter/cgpointer.go` |
+
+## Data Flow
+
+### Primary Request Path: Keep System Active
+
+## Key Abstractions
+
+- Purpose: Move mouse by offset and post real MouseMoved event (critical to reset idle timer)
+- Current: cgo C function in `main.go:10-19`
+- Target: `internal/activity/port/Pointer.Nudge(dx, dy int) error` interface, implemented by `internal/activity/adapter/cgpointer.go`
+- Why abstraction matters: Enables testing with mock Pointer; enables platform portability (Linux/Windows adapters)
+- Purpose: User-specified duration between nudges (default 10s)
+- Current: Flag `-interval` parsed in `main()`, passed to `time.NewTicker()`
+- Target: `internal/activity/domain/Interval` value object with validation
+
+## Entry Points
+
+- Location: `main.go:32`
+- Triggers: User runs `./sysmon [flags]`
+- Responsibilities: Parse flags, create ticker, subscribe to signals, orchestrate loop
+
+## Architectural Constraints
+
+- **Threading:** Single-threaded event loop via `select {}`. No goroutines.
+- **Global state:** None. All state is local to `main()` (interval, quiet flag, signal channel, ticker).
+- **Circular imports:** None (flat structure currently; target has clear dependency direction: domain ← service ← adapter).
+- **Platform binding:** Currently: cgo block in `main.go` tightly couples CoreGraphics API. Target: adapter pattern isolates platform code to `internal/activity/adapter/` with `//go:build darwin` tags.
+- **Signal safety:** Signal handling via `signal.Notify()` into channel; safe, doesn't block.
+
+## Architectural Gap (Current → Target)
+
+- Cannot unit-test keeper logic without macOS/Accessibility permission.
+- Platform portability blocked (Linux/Windows support requires code duplication or conditional compilation hacks).
+- Domain logic tightly coupled to infrastructure (cgo calls embedded in main loop).
+
+<!-- GSD:architecture-end -->
+
+<!-- GSD:skills-start source:skills/ -->
+
+## Project Skills
+
+No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
+<!-- GSD:skills-end -->
+
+<!-- GSD:workflow-start source:GSD defaults -->
+
+## GSD Workflow Enforcement
+
+Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+
+Use these entry points:
+
+- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
+- `/gsd-debug` for investigation and bug fixing
+- `/gsd-execute-phase` for planned phase work
+
+Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
+<!-- GSD:workflow-end -->
+
+<!-- GSD:profile-start -->
+
+## Developer Profile
+
+> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
+> This section is managed by `generate-claude-profile` -- do not edit manually.
+<!-- GSD:profile-end -->
