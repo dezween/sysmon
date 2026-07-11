@@ -10,3 +10,6 @@ sysmon
 
 # GSD planning docs (local-only)
 .planning/
+
+# code review outputs (local-only)
+docs/reviews/
