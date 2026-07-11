@@ -3,7 +3,7 @@
 // adapter import.
 package port
 
-//go:generate go run go.uber.org/mock/mockgen -destination=mock/mock_pointer.go -package=mock sysmon/internal/activity/port Pointer
+//go:generate mockgen -destination=mock/mock_pointer.go -package=mock sysmon/internal/activity/port Pointer
 
 // Pointer abstracts moving the system pointer by a relative offset and
 // posting a synthetic mouse-moved event, which resets the OS idle timer.
