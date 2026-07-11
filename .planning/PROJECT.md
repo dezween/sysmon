@@ -34,6 +34,7 @@ nearly free in resource use.
 - [ ] Refactor to hexagonal architecture (cmd/sysmon + internal/activity with domain/port/service/adapter) per docs/TASK.md §10
 - [ ] `KeeperService` unit-tested with a fake `Pointer` (no real mouse movement in tests)
 - [ ] Platform build tag (`//go:build darwin`) isolates the macOS/cgo adapter
+- [ ] Structured logging via stdlib `log/slog` (injected, level-controlled by `-quiet`) replaces ad-hoc `log.Printf`
 
 ### Out of Scope
 
@@ -67,6 +68,9 @@ nearly free in resource use.
 | Hexagonal architecture (mirror minitok.go) | Testability, portability, consistency | — Pending |
 | pidfile-based start/stop in Makefile | Avoids broad `pkill` matching unrelated procs (e.g. `sysmond`) | ✓ Good |
 | No rootkit process hiding | Detection-evasion out of scope; honest process | ✓ Good |
+| Structured logging via stdlib log/slog | Levels/structure without breaking the zero-dep constraint (vs zerolog/zap) | — Pending |
+| CI on macos-latest (build/lint/test) | cgo + CoreGraphics only compiles on macOS | ✓ Good |
+| golangci-lint v2 (minitok golden config, trimmed) | Consistent strict linting, minus minitok-specific/web linters | ✓ Good |
 
 ## Evolution
 

@@ -24,6 +24,10 @@ PROJECT.md; these requirements cover the restructure work.
 - [ ] **BUILD-01**: `go build` succeeds and all Makefile targets (build/run/start/stop/status/clean) work unchanged after the refactor
 - [ ] **BUILD-02**: Runtime behavior is preserved — `-interval` and `-quiet` flags, 10s default, real mouse-move event, clean SIGINT/SIGTERM shutdown
 
+### Logging (LOG)
+
+- [ ] **LOG-01**: Structured logging via stdlib `log/slog` (no third-party logger). The `KeeperService` logs lifecycle events with levels; `-quiet` raises the level threshold. Logger is injected (not a package global) so it stays testable.
+
 ## v2 Requirements (deferred)
 
 - [ ] Autostart at login via LaunchAgent
@@ -50,3 +54,4 @@ PROJECT.md; these requirements cover the restructure work.
 | TEST-01 | Phase 1 |
 | BUILD-01 | Phase 1 |
 | BUILD-02 | Phase 1 |
+| LOG-01 | Phase 1 |
