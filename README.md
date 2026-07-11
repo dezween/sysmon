@@ -1,50 +1,52 @@
 # sysmon
 
-Небольшая утилита на Go для macOS: держит систему «активной», раз в N секунд
-посылая настоящее событие движения мыши (сбрасывает таймер бездействия, не даёт
-уйти в idle / screensaver). Курсор при этом фактически остаётся на месте.
+A small Go utility for macOS: it keeps the system "active" by posting a real
+mouse-move event every N seconds (which resets the idle timer and prevents the
+machine from going idle / into the screensaver). The cursor stays effectively in
+place.
 
-## Сборка
+## Build
 
 ```sh
 go build -o sysmon .
 ```
 
-Нужны Xcode Command Line Tools (`xcode-select --install`) — используется cgo и
-фреймворк ApplicationServices.
+You need the Xcode Command Line Tools (`xcode-select --install`) -- it uses cgo
+and the ApplicationServices framework.
 
-## Запуск
+## Run
 
-Обычный запуск (с логами):
+Normal run (with logs):
 
 ```sh
 ./sysmon
 ```
 
-Свой интервал:
+Custom interval:
 
 ```sh
 ./sysmon -interval 30s
 ```
 
-В фоне, без вывода (окна нет — это консольная программа):
+In the background, with no output (there is no window -- it is a console
+program):
 
 ```sh
 nohup ./sysmon -quiet >/dev/null 2>&1 &
 ```
 
-Остановить фоновый процесс:
+Stop the background process:
 
 ```sh
 pkill -f sysmon
 ```
 
-## Права доступа (важно)
+## Permissions (important)
 
-macOS требует разрешение на отправку системных событий. При первом запуске
-система попросит добавить **терминал** (Terminal.app / iTerm), из которого
-запускается `sysmon`, в:
+macOS requires permission to post system events. On first run the system will
+ask you to add the **terminal** (Terminal.app / iTerm) that `sysmon` is launched
+from to:
 
-**Системные настройки → Конфиденциальность и безопасность → Универсальный доступ (Accessibility)**
+**System Settings -> Privacy & Security -> Accessibility**
 
-Без этого разрешения событие мыши не будет доставлено.
+Without this permission the mouse event will not be delivered.

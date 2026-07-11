@@ -22,7 +22,7 @@
 - Extract ticker loop to `KeeperService` in `service/keeper_service.go`
 - Implement CoreGraphics in `adapter/cgpointer.go` with `//go:build darwin`
 - Write unit tests for `KeeperService` with mock `Pointer`
-- **Acceptance criteria** (section 8 of TASK.md): "Проект приведён к гексагональной структуре" — currently INCOMPLETE
+- **Acceptance criteria** (section 8 of TASK.md): "The project is brought to the hexagonal structure" — currently INCOMPLETE
 
 ---
 
@@ -36,7 +36,7 @@
 - No automated verification of keeper loop correctness
 - No regression detection when refactoring
 - Cannot validate interval accuracy or signal handling
-- Blocks acceptance criterion: "KeeperService покрыт unit-тестом"
+- Blocks acceptance criterion: "KeeperService is covered by a unit test"
 
 **Fix approach:**
 - Wait for architecture refactor (hexagonal) — cannot test flat monolith effectively

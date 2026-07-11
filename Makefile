@@ -3,37 +3,37 @@ PIDFILE := /tmp/$(BINARY).pid
 
 .PHONY: build run start stop status clean
 
-## build: собрать бинарник
+## build: build the binary
 build:
 	go build -o $(BINARY) .
 
-## run: собрать и запустить в текущем терминале (Ctrl+C для выхода)
+## run: build and run in the current terminal (Ctrl+C to quit)
 run: build
 	./$(BINARY)
 
-## start: собрать и запустить в фоне без окна
+## start: build and run in the background with no window
 start: build
 	@nohup ./$(BINARY) -quiet >/dev/null 2>&1 & echo $$! > $(PIDFILE)
-	@echo "sysmon запущен в фоне (PID $$(cat $(PIDFILE)))"
+	@echo "sysmon started in the background (PID $$(cat $(PIDFILE)))"
 
-## stop: остановить фоновый процесс (по PID-файлу — точно и безопасно)
+## stop: stop the background process (by PID file -- precise and safe)
 stop:
 	@if [ -f $(PIDFILE) ] && kill -0 $$(cat $(PIDFILE)) 2>/dev/null; then \
-		kill $$(cat $(PIDFILE)) && echo "sysmon остановлен (PID $$(cat $(PIDFILE)))"; \
+		kill $$(cat $(PIDFILE)) && echo "sysmon stopped (PID $$(cat $(PIDFILE)))"; \
 	else \
-		echo "sysmon не запущен"; \
+		echo "sysmon is not running"; \
 	fi
 	@rm -f $(PIDFILE)
 
-## status: проверить, работает ли
+## status: check whether it is running
 status:
 	@if [ -f $(PIDFILE) ] && kill -0 $$(cat $(PIDFILE)) 2>/dev/null; then \
-		echo "sysmon работает (PID $$(cat $(PIDFILE)))"; \
+		echo "sysmon is running (PID $$(cat $(PIDFILE)))"; \
 	else \
-		echo "sysmon не работает"; \
+		echo "sysmon is not running"; \
 	fi
 
-## clean: удалить собранный бинарник
+## clean: remove the built binary
 clean:
 	@rm -f $(BINARY) $(PIDFILE)
-	@echo "очищено"
+	@echo "cleaned"

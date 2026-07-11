@@ -34,6 +34,7 @@ nearly free in resource use.
 - [ ] Refactor to hexagonal architecture (cmd/sysmon + internal/activity with domain/port/service/adapter) per docs/TASK.md §10
 - [ ] `KeeperService` unit-tested with a fake `Pointer` (no real mouse movement in tests)
 - [ ] Platform build tag (`//go:build darwin`) isolates the macOS/cgo adapter
+- [ ] Structured logging via stdlib `log/slog` (injected, level-controlled by `-quiet`) replaces ad-hoc `log.Printf`
 
 ### Out of Scope
 
@@ -46,7 +47,7 @@ nearly free in resource use.
 ## Context
 
 - Recreation of a utility the user previously had on another machine (now abroad).
-- Repo is private on GitHub (`dezween/sysmon`), isolated from the machine's corporate GitLab via a dedicated SSH key and local git identity.
+- Repo is private on GitHub (`dezween/sysmon`), kept separate from the machine's other git setups via a dedicated SSH key and local git identity.
 - Current code is a working but flat `main.go` in the repo root; the hexagonal layout exists only as a spec in `docs/TASK.md` §10.
 - Requires macOS Accessibility (TCC) permission for the controlling terminal, or synthetic events are silently dropped.
 - `.planning/` is kept local-only (git-ignored); a tailored code-review prompt lives in `docs/prompts/code-review.md`.
@@ -64,9 +65,12 @@ nearly free in resource use.
 |----------|-----------|---------|
 | Real mouse-move event (CGEventPost), not cursor warp | Only a real event resets the idle timer | ✓ Good |
 | Zero third-party deps (cgo + CoreGraphics) | Lightweight, reproducible build | ✓ Good |
-| Hexagonal architecture (mirror minitok.go) | Testability, portability, consistency | — Pending |
+| Hexagonal architecture (like a larger Go monorepo) | Testability, portability, consistency | — Pending |
 | pidfile-based start/stop in Makefile | Avoids broad `pkill` matching unrelated procs (e.g. `sysmond`) | ✓ Good |
 | No rootkit process hiding | Detection-evasion out of scope; honest process | ✓ Good |
+| Structured logging via stdlib log/slog | Levels/structure without breaking the zero-dep constraint (vs zerolog/zap) | — Pending |
+| CI on macos-latest (build/lint/test) | cgo + CoreGraphics only compiles on macOS | ✓ Good |
+| golangci-lint v2 (strict golden config, trimmed) | Consistent strict linting, minus project-specific/web linters | ✓ Good |
 
 ## Evolution
 

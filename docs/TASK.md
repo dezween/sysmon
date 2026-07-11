@@ -1,198 +1,211 @@
-# ТЗ: sysmon — утилита поддержания активности macOS
+# Spec: sysmon -- a macOS activity-keeper utility
 
-## 1. Цель
+## 1. Goal
 
-Небольшая консольная утилита на Go для macOS, которая не даёт системе уйти в
-простой: раз в заданный интервал она посылает настоящее событие движения мыши.
-Это сбрасывает системный таймер бездействия — не гаснет экран, не включается
-screensaver, статус в мессенджерах/таск-трекерах не переключается в «отошёл».
-Курсор при этом фактически остаётся на месте (сдвиг на 1px туда-обратно).
+A small console utility in Go for macOS that keeps the system from going idle:
+at a configurable interval it posts a real mouse-move event. This resets the
+system idle timer -- the screen does not dim, the screensaver does not kick in,
+and status in messengers/task-trackers does not flip to "away". The cursor stays
+effectively in place (a 1px nudge there and back).
 
-Утилита запускается из терминала, работает тихо в фоне, своего окна не имеет.
+The utility is launched from the terminal, runs quietly in the background, and
+has no window of its own.
 
-## 2. Контекст и мотивация
+## 2. Context and motivation
 
-- Целевая машина — Mac на Apple Silicon (arm64), macOS 26.
-- Программа была утеряна (осталась на другом компьютере в другой стране),
-  задача — воссоздать её с нуля и держать под контролем версий на GitHub.
-- Репозиторий приватный: `git@github.com:dezween/sysmon.git`.
+- Target machine -- a Mac on Apple Silicon (arm64), macOS 26.
+- The original program was lost (left on another computer in another country);
+  the task is to recreate it from scratch and keep it under version control on
+  GitHub.
+- The repository is private: `git@github.com:dezween/sysmon.git`.
 
-## 3. Функциональные требования
+## 3. Functional requirements
 
-1. **Движение мыши по интервалу.** По умолчанию — раз в 10 секунд. Интервал
-   настраивается флагом `-interval` (принимает Go-duration: `10s`, `30s`, `1m`).
-2. **Реальное событие, а не просто перемещение курсора.** Обязательно постить
-   `kCGEventMouseMoved` через `CGEventPost(kCGHIDEventTap, …)` — только это
-   сбрасывает таймер бездействия. Простой `CGWarpMouseCursorPosition`
-   передвигает курсор, но idle-таймер не трогает — не подходит.
-3. **Минимальное смещение.** Сдвиг на +1px и сразу обратно −1px, чтобы курсор
-   визуально не «уезжал».
-4. **Тихий режим.** Флаг `-quiet` подавляет логи в stdout — для фонового запуска.
-5. **Чистое завершение.** Обработка `SIGINT`/`SIGTERM`: корректно остановить
-   тикер и выйти с кодом 0.
-6. **Фоновый запуск без окна.** Обычная консольная программа; фон — через
-   `nohup … &` либо через `make start`.
+1. **Mouse movement on an interval.** By default -- once every 10 seconds. The
+   interval is configurable via the `-interval` flag (accepts a Go duration:
+   `10s`, `30s`, `1m`).
+2. **A real event, not just a cursor reposition.** It must post
+   `kCGEventMouseMoved` via `CGEventPost(kCGHIDEventTap, …)` -- only that resets
+   the idle timer. A plain `CGWarpMouseCursorPosition` moves the cursor but does
+   not touch the idle timer, so it is not suitable.
+3. **Minimal offset.** Shift by +1px and immediately back by -1px so the cursor
+   does not visibly "drift".
+4. **Quiet mode.** The `-quiet` flag suppresses logs to stdout -- for background
+   runs.
+5. **Clean shutdown.** Handle `SIGINT`/`SIGTERM`: stop the ticker properly and
+   exit with code 0.
+6. **Background run with no window.** An ordinary console program; background via
+   `nohup … &` or via `make start`.
 
-## 4. Нефункциональные требования
+## 4. Non-functional requirements
 
-- **Без внешних зависимостей.** Только стандартная библиотека Go + cgo с
-  системным фреймворком `ApplicationServices`/`CoreGraphics`. Никаких сторонних
-  Go-модулей (robotgo и т.п.) — чтобы сборка была лёгкой и воспроизводимой.
-- **Сборка одной командой** через `Makefile`.
-- **Читаемость.** Код с комментариями на понятном уровне; README с инструкциями.
+- **No external dependencies.** Only the Go standard library + cgo with the
+  system `ApplicationServices`/`CoreGraphics` framework. No third-party Go
+  modules (robotgo and the like) -- so the build stays light and reproducible.
+- **One-command build** via the `Makefile`.
+- **Readability.** Code with comments at a reasonable level; a README with
+  instructions.
 
-## 5. Явные НЕ-цели (out of scope)
+## 5. Explicit non-goals (out of scope)
 
-> Важно зафиксировать, чтобы не было недопонимания.
+> Worth stating explicitly to avoid misunderstanding.
 
-- ❌ **Никакого скрытия процесса из `ps`/Activity Monitor уровня руткита**
-  (перехват системных вызовов, подмена вывода ядра, LD_PRELOAD-трюки и пр.).
-  Утилита — честный процесс в списке. «Невидимость» ограничивается отсутствием
-  GUI-окна и тихим фоновым режимом.
-- ❌ Никакого автозапуска при входе в систему (LaunchAgent) — по требованию.
-  Может быть добавлено отдельной задачей позже.
-- ❌ Никакой сетевой активности, телеметрии, записи данных.
+- ❌ **No rootkit-level hiding of the process from `ps`/Activity Monitor**
+  (intercepting system calls, faking kernel output, LD_PRELOAD tricks, etc.).
+  The utility is an honest process in the list. "Invisibility" is limited to the
+  absence of a GUI window and the quiet background mode.
+- ❌ No autostart at login (LaunchAgent) -- by requirement. May be added as a
+  separate task later.
+- ❌ No network activity, telemetry, or data logging.
 
-## 6. Техническое решение
+## 6. Technical solution
 
-- **Язык/сборка:** Go 1.26, `cgo` включён (нужны Xcode Command Line Tools).
-- **API движения мыши:**
-  - текущая позиция курсора: `CGEventCreate(NULL)` → `CGEventGetLocation`;
-  - событие: `CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, point, …)`;
-  - отправка: `CGEventPost(kCGHIDEventTap, event)`;
-  - обязательный `CFRelease` для созданных объектов (нет утечек CF-памяти).
-- **Цикл:** `time.NewTicker(interval)` + `select` по тикеру и каналу сигналов.
-- **Структура репозитория** (целевая, гексагональная — см. раздел 10):
+- **Language/build:** Go 1.26, `cgo` enabled (Xcode Command Line Tools required).
+- **Mouse-movement API:**
+  - current cursor position: `CGEventCreate(NULL)` -> `CGEventGetLocation`;
+  - event: `CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, point, …)`;
+  - posting: `CGEventPost(kCGHIDEventTap, event)`;
+  - mandatory `CFRelease` for created objects (no CF-memory leaks).
+- **Loop:** `time.NewTicker(interval)` + `select` over the ticker and the signal
+  channel.
+- **Repository layout** (target, hexagonal -- see section 10):
   ```
   sysmon/
   ├── cmd/
   │   └── sysmon/
-  │       └── main.go            # точка входа: флаги, DI-сборка, сигналы
+  │       └── main.go            # entry point: flags, DI wiring, signals
   ├── internal/
-  │   └── activity/              # модуль «поддержание активности»
-  │       ├── domain/            # доменные сущности и правила
-  │       ├── port/              # интерфейсы (порты)
-  │       ├── service/           # прикладная логика (use cases)
-  │       └── adapter/           # реализации портов (macOS/CoreGraphics)
-  ├── pkg/                       # переиспользуемый код (при необходимости)
-  ├── go.mod                     # module sysmon, без внешних зависимостей
+  │   └── activity/              # the "activity keeping" module
+  │       ├── domain/            # domain entities and rules
+  │       ├── port/              # interfaces (ports)
+  │       ├── service/           # application logic (use cases)
+  │       └── adapter/           # port implementations (macOS/CoreGraphics)
+  ├── pkg/                       # reusable code (if needed)
+  ├── go.mod                     # module sysmon, no external dependencies
   ├── Makefile                   # build / run / start / stop / status / clean
-  ├── .gitignore                 # бинарник, .DS_Store, .idea/
-  ├── README.md                  # инструкции пользователю
+  ├── .gitignore                 # binary, .DS_Store, .idea/
+  ├── README.md                  # user instructions
   └── docs/
-      └── TASK.md                # этот документ
+      └── TASK.md                # this document
   ```
 
-## 7. Права доступа (macOS TCC)
+## 7. Permissions (macOS TCC)
 
-Для доставки синтетических событий мыши системе нужно разрешение
-**Универсальный доступ (Accessibility)** для того терминала, из которого
-запускается `sysmon` (Terminal.app / iTerm):
+To deliver synthetic mouse events, the system needs **Accessibility** permission
+for the terminal that `sysmon` is launched from (Terminal.app / iTerm):
 
-**Системные настройки → Конфиденциальность и безопасность → Универсальный доступ.**
+**System Settings -> Privacy & Security -> Accessibility.**
 
-Без разрешения программа запустится и не упадёт, но событие мыши не будет
-доставлено (idle-таймер не сбросится). Это ожидаемое поведение ОС, не баг.
+Without permission the program starts and does not crash, but the mouse event is
+not delivered (the idle timer is not reset). This is expected OS behavior, not a
+bug.
 
-## 8. Критерии приёмки
+## 8. Acceptance criteria
 
-- [x] `go build -o sysmon .` собирается без ошибок и без сторонних зависимостей.
-- [x] Бинарник — Mach-O arm64.
-- [x] Запуск с `-interval 300ms` работает, `SIGTERM` завершает процесс с кодом 0.
-- [x] `make start` поднимает фоновый процесс, `make status` показывает его,
-      `make stop` гасит **только его** (по PID-файлу).
-- [x] `make stop` не задевает системный демон `/usr/libexec/sysmond` и другие
-      посторонние процессы (баг с regex `-f "./sysmon"` устранён).
-- [x] Репозиторий приватный, коммиты подписаны личной скрытой почтой
-      (`dezween@users.noreply.github.com`), корпоративная личность не утекает.
-- [ ] На целевой машине выдано разрешение Accessibility и проверено, что экран
-      реально не уходит в сон при запущенном `sysmon` (ручная проверка).
-- [ ] Проект приведён к гексагональной структуре (раздел 10): `cmd/sysmon`,
-      модуль `internal/activity` с `domain/port/service/adapter`; направление
-      зависимостей соблюдено (`domain` ни от кого не зависит).
-- [ ] `KeeperService` покрыт unit-тестом с фейковым `Pointer` (без реальной мыши).
+- [x] `go build -o sysmon .` compiles without errors and without third-party
+      dependencies.
+- [x] The binary is Mach-O arm64.
+- [x] Running with `-interval 300ms` works, and `SIGTERM` exits the process with
+      code 0.
+- [x] `make start` brings up a background process, `make status` shows it, and
+      `make stop` kills **only it** (via the PID file).
+- [x] `make stop` does not touch the system daemon `/usr/libexec/sysmond` or
+      other unrelated processes (the `-f "./sysmon"` regex bug is fixed).
+- [x] The repository is private, commits are signed with a personal hidden email
+      (`dezween@users.noreply.github.com`), and no personal-work identity leaks.
+- [ ] Accessibility permission is granted on the target machine and it has been
+      verified that the screen really does not go to sleep while `sysmon` is
+      running (manual check).
+- [ ] The project is brought to the hexagonal structure (section 10):
+      `cmd/sysmon`, an `internal/activity` module with `domain/port/service/adapter`;
+      dependency direction is respected (`domain` depends on nothing).
+- [ ] `KeeperService` is covered by a unit test with a fake `Pointer` (no real
+      mouse).
 
-## 9. Возможные доработки на будущее
+## 9. Possible future improvements
 
-- Опциональный автозапуск через LaunchAgent (`~/Library/LaunchAgents`).
-- Флаг «рабочих часов» (активность только, скажем, 09:00–19:00).
-- Режим имитации нажатия клавиши (напр. Shift) вместо мыши как альтернатива.
+- Optional autostart via a LaunchAgent (`~/Library/LaunchAgents`).
+- A "working hours" flag (activity only, say, 09:00-19:00).
+- A key-press simulation mode (e.g. Shift) as an alternative to the mouse.
 
-## 10. Архитектура проекта (гексагональная, как в minitok.go)
+## 10. Project architecture (hexagonal ports & adapters)
 
-Проект строится по той же гексагональной архитектуре (ports & adapters), что и
-основной монорепозиторий `minitok.go`: бизнес-логика в центре, инфраструктура —
-по краям, связь через интерфейсы. Даже несмотря на то, что утилита маленькая,
-структура выдерживается для единообразия и лёгкой расширяемости.
+The project is built on a hexagonal architecture (ports & adapters): business
+logic at the center, infrastructure at the edges, wired together through
+interfaces. Even though the utility is small, the structure is kept for
+consistency and easy extensibility.
 
-### 10.1. Раскладка по каталогам
+### 10.1. Directory layout
 
-- **`cmd/<binary>/main.go`** — точки входа. Здесь только разбор флагов, сборка
-  зависимостей (dependency injection «руками»), обработка сигналов и запуск.
-  Никакой бизнес-логики.
-- **`internal/<module>/`** — модуль (bounded context). Каждый модуль изнутри
-  делится ровно на четыре пакета — как в minitok:
-  - **`domain/`** — доменные сущности, value-объекты и правила. Чистый Go, **без
-    внешних и системных зависимостей** (никакого cgo, os, времени из вне через
-    порты). Ничего не импортирует из `port`, `service`, `adapter`.
-  - **`port/`** — интерфейсы (порты). Два вида:
-    - *driven (output) ports* — что домену/сервису нужно от внешнего мира
-      (например, «сдвинуть указатель»);
-    - *driving (input) ports* — как систему дёргают снаружи (например, «запустить
-      цикл поддержания активности»).
-    Порты не знают о конкретных реализациях.
-  - **`service/`** — прикладной слой (use cases). Оркестрирует домен и вызывает
-    driven-порты. Зависит **только от `domain` и `port`**, не от `adapter`.
-  - **`adapter/`** — конкретные реализации портов, вся инфраструктура. Здесь
-    живёт cgo/CoreGraphics-код, работа с ОС, часами и т.п. Адаптеры реализуют
-    интерфейсы из `port`.
-- **`pkg/`** — переиспользуемый код, не привязанный к конкретному модулю (если
-  понадобится). По умолчанию может быть пустым.
+- **`cmd/<binary>/main.go`** -- entry points. Only flag parsing, dependency
+  wiring (manual dependency injection), signal handling, and startup here. No
+  business logic.
+- **`internal/<module>/`** -- a module (bounded context). Each module is split
+  internally into exactly four packages:
+  - **`domain/`** -- domain entities, value objects, and rules. Pure Go, **with
+    no external or system dependencies** (no cgo, no os, no ambient time -- those
+    come in through ports). Imports nothing from `port`, `service`, or `adapter`.
+  - **`port/`** -- interfaces (ports). Two kinds:
+    - *driven (output) ports* -- what the domain/service needs from the outside
+      world (for example, "move the pointer");
+    - *driving (input) ports* -- how the system is invoked from outside (for
+      example, "run the activity-keeping loop").
+    Ports know nothing about concrete implementations.
+  - **`service/`** -- the application layer (use cases). Orchestrates the domain
+    and calls driven ports. Depends **only on `domain` and `port`**, not on
+    `adapter`.
+  - **`adapter/`** -- concrete port implementations, all the infrastructure.
+    This is where the cgo/CoreGraphics code, the OS work, the clock, etc. live.
+    Adapters implement the interfaces from `port`.
+- **`pkg/`** -- reusable code not tied to a specific module (if needed). May be
+  empty by default.
 
-### 10.2. Направление зависимостей
+### 10.2. Dependency direction
 
 ```
-cmd  ──▶  service  ──▶  port  ◀──  adapter
-                 │        ▲
-                 └──▶  domain
+cmd  -->  service  -->  port  <--  adapter
+                 |        ^
+                 +-->  domain
 ```
 
-Правило: зависимости всегда направлены **внутрь**, к домену. `domain` не зависит
-ни от кого. `service` зависит от `domain` и `port`. `adapter` зависит от `port`
-(реализует его) и от `domain` (для типов). `cmd` знает про всё и связывает
-адаптеры с сервисами через порты.
+Rule: dependencies always point **inward**, toward the domain. `domain` depends
+on nothing. `service` depends on `domain` and `port`. `adapter` depends on `port`
+(implements it) and on `domain` (for types). `cmd` knows about everything and
+wires adapters to services through ports.
 
-### 10.3. Модуль `activity` — конкретная раскладка для sysmon
+### 10.3. The `activity` module -- concrete layout for sysmon
 
-Единственный модуль — `internal/activity`. Предлагаемое наполнение:
+The only module is `internal/activity`. Suggested contents:
 
 - **`domain/`**
-  - `activity.go` — доменные типы: например `Interval` (валидируемый интервал),
-    `Offset` (величина сдвига указателя) и правила (интервал > 0 и т.п.).
+  - `activity.go` -- domain types: e.g. `Interval` (a validated interval),
+    `Offset` (pointer shift magnitude) and rules (interval > 0, etc.).
 - **`port/`**
-  - `pointer.go` — driven-порт `Pointer` с методом вроде
-    `Nudge(dx, dy int) error` (абстракция над «пошевелить указателем»).
-  - `keeper.go` — driving-порт `Keeper` с методом `Run(ctx) error` (запуск цикла
-    поддержания активности).
+  - `pointer.go` -- the driven port `Pointer` with a method like
+    `Nudge(dx, dy int) error` (an abstraction over "wiggle the pointer").
+  - `keeper.go` -- the driving port `Keeper` with a method `Run(ctx) error`
+    (start the activity-keeping loop).
 - **`service/`**
-  - `keeper_service.go` — реализация `Keeper`: тикер по `Interval`, на каждый тик
-    вызывает `Pointer.Nudge(+1,0)` → пауза → `Nudge(-1,0)`; корректно завершается
-    по отмене `ctx`.
+  - `keeper_service.go` -- the `Keeper` implementation: a ticker over `Interval`,
+    on each tick it calls `Pointer.Nudge(+1,0)` -> pause -> `Nudge(-1,0)`; exits
+    cleanly on `ctx` cancellation.
 - **`adapter/`**
-  - `cgpointer.go` — реализация `Pointer` через cgo + CoreGraphics
-    (`CGEventCreateMouseEvent` / `CGEventPost`), с тегом сборки `//go:build darwin`.
+  - `cgpointer.go` -- the `Pointer` implementation via cgo + CoreGraphics
+    (`CGEventCreateMouseEvent` / `CGEventPost`), with a `//go:build darwin` build
+    tag.
 
-Точка входа **`cmd/sysmon/main.go`**: читает флаги (`-interval`, `-quiet`),
-создаёт `adapter.CGPointer`, передаёт его в `service.NewKeeperService(...)`,
-подписывается на `SIGINT/SIGTERM` через `context`, запускает `keeper.Run(ctx)`.
+The entry point **`cmd/sysmon/main.go`** reads the flags (`-interval`, `-quiet`),
+creates `adapter.CGPointer`, passes it into `service.NewKeeperService(...)`,
+subscribes to `SIGINT/SIGTERM` via `context`, and runs `keeper.Run(ctx)`.
 
-### 10.4. Плюсы такого разбиения для sysmon
+### 10.4. Benefits of this split for sysmon
 
-- **Тестируемость.** `KeeperService` тестируется с фейковым `Pointer` (mock) без
-  реального движения мыши и без macOS.
-- **Портируемость.** Чтобы поддержать Linux/Windows, достаточно добавить новый
-  адаптер `Pointer` под нужную ОС с тегом сборки — домен и сервис не меняются.
-- **Единообразие с minitok.go** — знакомая структура, легче поддерживать.
+- **Testability.** `KeeperService` is tested with a fake `Pointer` (mock),
+  without real mouse movement and without macOS.
+- **Portability.** To support Linux/Windows it is enough to add a new `Pointer`
+  adapter for that OS with a build tag -- the domain and service do not change.
+- **Consistency.** A familiar structure that is easier to maintain.
 
-> Примечание: текущая реализация в репозитории пока плоская (`main.go` в корне).
-> Рефакторинг в описанную структуру — отдельная задача по этому ТЗ.
+> Note: the current implementation in the repo is still flat (`main.go` at the
+> root). Refactoring into the structure described here is a separate task under
+> this spec.
