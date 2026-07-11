@@ -1,5 +1,8 @@
 BINARY := sysmon
 PIDFILE := /tmp/$(BINARY).pid
+# INTERVAL controls how often the cursor is nudged. Override on the command
+# line, e.g. `make start INTERVAL=3s`. Must be a positive Go duration.
+INTERVAL ?= 10s
 
 .PHONY: build run start stop status clean
 
@@ -9,12 +12,12 @@ build:
 
 ## run: build and run in the current terminal (Ctrl+C to quit)
 run: build
-	./$(BINARY)
+	./$(BINARY) -interval $(INTERVAL)
 
 ## start: build and run in the background with no window
 start: build
-	@nohup ./$(BINARY) -quiet >/dev/null 2>&1 & echo $$! > $(PIDFILE)
-	@echo "sysmon started in the background (PID $$(cat $(PIDFILE)))"
+	@nohup ./$(BINARY) -quiet -interval $(INTERVAL) >/dev/null 2>&1 & echo $$! > $(PIDFILE)
+	@echo "sysmon started in the background (PID $$(cat $(PIDFILE)), interval $(INTERVAL))"
 
 ## stop: stop the background process (by PID file -- precise and safe)
 stop:
