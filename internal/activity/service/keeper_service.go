@@ -56,9 +56,9 @@ func (k *KeeperService) Run(ctx context.Context) error {
 		select {
 		case <-ticker.C:
 			k.nudgeCycle(ctx, offset)
-			// The pause inside nudgeCycle honors ctx cancellation, so a
-			// shutdown that lands mid-cycle exits promptly here rather than
-			// waiting for the next tick.
+			// nudgeCycle has already run its compensating back-nudge (even if
+			// ctx was cancelled during the pause). If ctx is now done, stop
+			// here instead of waiting for the next tick.
 			if ctx.Err() != nil {
 				k.logger.Info("sysmon stopped")
 				return nil
@@ -71,7 +71,10 @@ func (k *KeeperService) Run(ctx context.Context) error {
 }
 
 // nudgeCycle performs one there-and-back nudge. The pause between the two
-// nudges is interruptible so shutdown is not delayed by up to nudgePause.
+// nudges is interruptible: if ctx is cancelled during it, the pause ends early
+// but the compensating back-nudge STILL runs, so the cursor returns to its
+// original position before shutdown. The only path that skips the back-nudge
+// is a failed forward nudge (the cursor never moved).
 func (k *KeeperService) nudgeCycle(ctx context.Context, offset int) {
 	if err := k.pointer.Nudge(offset, 0); err != nil {
 		// The forward nudge failed, so the cursor never moved -- do NOT send
