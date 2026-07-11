@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"sysmon/internal/activity/adapter"
+	"sysmon/internal/activity/domain"
 	"sysmon/internal/activity/service"
 )
 
@@ -22,8 +23,13 @@ const (
 	defaultInterval = 10 * time.Second
 	// nudgeOffset is the pixel shift applied then reversed on each nudge.
 	nudgeOffset = 1
-	// nudgePause is the delay between the forward and backward nudge.
-	nudgePause = 40 * time.Millisecond
+)
+
+// Process exit codes.
+const (
+	exitOK      = 0
+	exitFailure = 1
+	exitUsage   = 2
 )
 
 func main() {
@@ -44,16 +50,30 @@ func run() int {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 
+	// Validate the settings through the domain before starting, so a bad
+	// -interval (e.g. zero or negative) fails fast with a clear message
+	// instead of panicking inside time.NewTicker.
+	validInterval, err := domain.NewInterval(*interval)
+	if err != nil {
+		logger.Error("invalid interval", "err", err, "value", interval.String())
+		return exitUsage
+	}
+	offset, err := domain.NewOffset(nudgeOffset)
+	if err != nil {
+		logger.Error("invalid offset", "err", err, "value", nudgeOffset)
+		return exitUsage
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	pointer := adapter.NewCGPointer()
-	keeper := service.NewKeeperService(pointer, logger, *interval, nudgeOffset, nudgePause)
+	keeper := service.NewKeeperService(pointer, logger, validInterval, offset)
 
 	if err := keeper.Run(ctx); err != nil {
 		logger.Error("sysmon exited with error", "err", err)
-		return 1
+		return exitFailure
 	}
 
-	return 0
+	return exitOK
 }

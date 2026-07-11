@@ -7,12 +7,29 @@ import (
 	"testing/synctest"
 	"time"
 
+	"sysmon/internal/activity/domain"
 	"sysmon/internal/activity/port/mock"
 	"sysmon/internal/activity/service"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// mustInterval builds a validated domain.Interval, failing the test on error.
+func mustInterval(t *testing.T, d time.Duration) domain.Interval {
+	t.Helper()
+	iv, err := domain.NewInterval(d)
+	require.NoError(t, err)
+	return iv
+}
+
+// mustOffset builds a validated domain.Offset, failing the test on error.
+func mustOffset(t *testing.T, px int) domain.Offset {
+	t.Helper()
+	off, err := domain.NewOffset(px)
+	require.NoError(t, err)
+	return off
+}
 
 func TestKeeperService_NudgesPerTick(t *testing.T) {
 	t.Parallel()
@@ -23,22 +40,20 @@ func TestKeeperService_NudgesPerTick(t *testing.T) {
 
 		const (
 			interval = 10 * time.Second
-			offset   = 1
-			pause    = 40 * time.Millisecond
 			ticks    = 3
 		)
 
 		gomock.InOrder(
-			pointer.EXPECT().Nudge(offset, 0).Return(nil),
-			pointer.EXPECT().Nudge(-offset, 0).Return(nil),
-			pointer.EXPECT().Nudge(offset, 0).Return(nil),
-			pointer.EXPECT().Nudge(-offset, 0).Return(nil),
-			pointer.EXPECT().Nudge(offset, 0).Return(nil),
-			pointer.EXPECT().Nudge(-offset, 0).Return(nil),
+			pointer.EXPECT().Nudge(1, 0).Return(nil),
+			pointer.EXPECT().Nudge(-1, 0).Return(nil),
+			pointer.EXPECT().Nudge(1, 0).Return(nil),
+			pointer.EXPECT().Nudge(-1, 0).Return(nil),
+			pointer.EXPECT().Nudge(1, 0).Return(nil),
+			pointer.EXPECT().Nudge(-1, 0).Return(nil),
 		)
 
 		logger := slog.New(slog.DiscardHandler)
-		svc := service.NewKeeperService(pointer, logger, interval, offset, pause)
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, interval), mustOffset(t, 1))
 
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 1)
@@ -62,7 +77,7 @@ func TestKeeperService_StopsOnContextCancel(t *testing.T) {
 		pointer := mock.NewMockPointer(ctrl)
 
 		logger := slog.New(slog.DiscardHandler)
-		svc := service.NewKeeperService(pointer, logger, time.Second, 1, time.Millisecond)
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), mustOffset(t, 1))
 
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 1)

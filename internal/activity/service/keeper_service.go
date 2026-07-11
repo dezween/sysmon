@@ -8,8 +8,14 @@ import (
 	"log/slog"
 	"time"
 
+	"sysmon/internal/activity/domain"
 	"sysmon/internal/activity/port"
 )
+
+// nudgePause is the delay between the forward and backward nudge of a single
+// cycle. It is an implementation detail of the there-and-back move, not a
+// user-facing setting, so it is a package constant rather than a parameter.
+const nudgePause = 40 * time.Millisecond
 
 // KeeperService implements port.Keeper: it drives a ticker loop that nudges
 // the pointer there and back on each tick, and stops cleanly when ctx is
@@ -17,49 +23,70 @@ import (
 type KeeperService struct {
 	pointer  port.Pointer
 	logger   *slog.Logger
-	interval time.Duration
-	offset   int
-	pause    time.Duration
+	interval domain.Interval
+	offset   domain.Offset
 }
 
-// NewKeeperService constructs a KeeperService. pointer and logger are
-// injected dependencies (never package globals), which is what makes this
-// service unit-testable without a real mouse or macOS Accessibility.
-func NewKeeperService(pointer port.Pointer, logger *slog.Logger, interval time.Duration, offset int, pause time.Duration) *KeeperService {
+// NewKeeperService constructs a KeeperService. pointer and logger are injected
+// dependencies (never package globals), which is what makes this service
+// unit-testable without a real mouse or macOS Accessibility. interval and
+// offset are validated domain value objects, so the ticker can never receive a
+// non-positive duration and the two settings cannot be swapped by accident.
+func NewKeeperService(pointer port.Pointer, logger *slog.Logger, interval domain.Interval, offset domain.Offset) *KeeperService {
 	return &KeeperService{
 		pointer:  pointer,
 		logger:   logger,
 		interval: interval,
 		offset:   offset,
-		pause:    pause,
 	}
 }
 
-// Run starts the nudge ticker loop and blocks until ctx is done. On each
-// tick it nudges the pointer forward by offset, pauses, then nudges it back
-// by the same offset (there-and-back), so the cursor stays effectively in
-// place while a real move event is posted. Run returns nil on clean
-// cancellation.
+// Run starts the nudge ticker loop and blocks until ctx is done. On each tick
+// it nudges the pointer forward by offset, pauses, then nudges it back by the
+// same offset (there-and-back), so the cursor stays effectively in place while
+// a real move event is posted. Run returns nil on clean cancellation.
 func (k *KeeperService) Run(ctx context.Context) error {
-	ticker := time.NewTicker(k.interval)
+	ticker := time.NewTicker(k.interval.Duration())
 	defer ticker.Stop()
 
-	k.logger.Info("sysmon started", "interval", k.interval)
+	offset := k.offset.Int()
+	k.logger.Info("sysmon started", "interval", k.interval.Duration())
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := k.pointer.Nudge(k.offset, 0); err != nil {
-				k.logger.Error("nudge failed", "err", err)
-				continue
-			}
-			time.Sleep(k.pause)
-			if err := k.pointer.Nudge(-k.offset, 0); err != nil {
-				k.logger.Error("nudge back failed", "err", err)
+			k.nudgeCycle(ctx, offset)
+			// The pause inside nudgeCycle honors ctx cancellation, so a
+			// shutdown that lands mid-cycle exits promptly here rather than
+			// waiting for the next tick.
+			if ctx.Err() != nil {
+				k.logger.Info("sysmon stopped")
+				return nil
 			}
 		case <-ctx.Done():
 			k.logger.Info("sysmon stopped")
 			return nil
 		}
+	}
+}
+
+// nudgeCycle performs one there-and-back nudge. The pause between the two
+// nudges is interruptible so shutdown is not delayed by up to nudgePause.
+func (k *KeeperService) nudgeCycle(ctx context.Context, offset int) {
+	if err := k.pointer.Nudge(offset, 0); err != nil {
+		// The forward nudge failed, so the cursor never moved -- do NOT send
+		// the compensating back-nudge, which would leave it offset the other
+		// way. Skipping it keeps the cursor where it was.
+		k.logger.Error("nudge failed", "err", err)
+		return
+	}
+
+	select {
+	case <-time.After(nudgePause):
+	case <-ctx.Done():
+	}
+
+	if err := k.pointer.Nudge(-offset, 0); err != nil {
+		k.logger.Error("nudge back failed", "err", err)
 	}
 }
