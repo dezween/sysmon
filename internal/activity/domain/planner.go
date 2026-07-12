@@ -9,9 +9,10 @@ const (
 	// stepCount is the number of intermediate points a glide path is split
 	// into, chosen to land in the human-like ~20-60 step range.
 	stepCount = 40
-	// roundingScale doubles the interpolation denominator so integer
-	// division can round to the nearest pixel instead of truncating toward
-	// zero.
+	// roundingScale doubles both the numerator and denominator of the
+	// interpolation division. That lets us add `total` (which equals half of
+	// the doubled denominator) before dividing, implementing round-half-up to
+	// the nearest pixel instead of truncation toward zero.
 	roundingScale = 2
 )
 
@@ -64,10 +65,30 @@ func (p *Planner) Plan(curX, curY, width, height int) ([]Point, error) {
 		return nil, ErrInvalidBounds
 	}
 
+	// Clamp the starting position into this display's bounds before planning.
+	// Position() can report global desktop coordinates -- negative, or beyond
+	// the main display -- when the cursor sits on a secondary monitor.
+	// Interpolating from an out-of-bounds start would send the first glide
+	// steps off-screen, violating the "never off-screen" guarantee.
+	curX = clamp(curX, width)
+	curY = clamp(curY, height)
+
 	targetX := p.rnd.IntN(width)
 	targetY := p.rnd.IntN(height)
 
 	return interpolate(curX, curY, targetX, targetY), nil
+}
+
+// clamp constrains v to the valid pixel range [0, size-1] for an axis of the
+// given size. size is guaranteed positive by the caller.
+func clamp(v, size int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > size-1 {
+		return size - 1
+	}
+	return v
 }
 
 // interpolate builds the ordered intermediate points from (fromX, fromY) to

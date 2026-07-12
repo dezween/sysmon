@@ -93,7 +93,11 @@ func (c *CGPointer) Position() (int, int, error) {
 	return int(x), int(y), nil
 }
 
-// Bounds returns the main display's width and height in pixels.
+// Bounds returns the main display's width and height in pixels. The error is
+// always nil here: CGDisplayBounds(CGMainDisplayID()) always yields positive
+// dimensions for the main display. The error is kept in the signature for
+// interface symmetry (other adapters may fail) and because domain.Planner
+// still guards non-positive bounds with ErrInvalidBounds.
 func (c *CGPointer) Bounds() (int, int, error) {
 	var w, h C.double
 	C.getBounds(&w, &h)

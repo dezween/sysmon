@@ -85,6 +85,8 @@ func (k *KeeperService) roam(ctx context.Context) {
 		return
 	}
 
+	// Bounds are read on every roam (not cached) so a resolution change or a
+	// monitor being plugged/unplugged is picked up without restarting.
 	w, h, err := k.pointer.Bounds()
 	if err != nil {
 		k.logger.Error("read bounds failed", "err", err)
@@ -103,14 +105,20 @@ func (k *KeeperService) roam(ctx context.Context) {
 // drive walks path in order, calling MoveTo for each point with a short
 // inter-step pause, stopping immediately if ctx is cancelled between steps.
 func (k *KeeperService) drive(ctx context.Context, path []domain.Point) {
+	// Reuse one timer across the whole glide instead of allocating a fresh
+	// one per step (time.After), keeping the burst lightweight.
+	timer := time.NewTimer(stepPause)
+	defer timer.Stop()
+
 	for _, pt := range path {
 		if err := k.pointer.MoveTo(pt.X, pt.Y); err != nil {
 			k.logger.Error("move failed", "err", err)
 			return
 		}
 
+		timer.Reset(stepPause)
 		select {
-		case <-time.After(stepPause):
+		case <-timer.C:
 		case <-ctx.Done():
 			return
 		}
