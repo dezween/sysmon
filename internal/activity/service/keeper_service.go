@@ -1,6 +1,6 @@
 // Package service contains the KeeperService use case: the ticker loop that
-// drives Pointer.Nudge on a fixed interval. It depends only on domain and
-// port, never on adapter.
+// drives a roam (a planned glide path) through Pointer on a fixed interval.
+// It depends only on domain and port, never on adapter.
 package service
 
 import (
@@ -12,53 +12,54 @@ import (
 	"sysmon/internal/activity/port"
 )
 
-// nudgePause is the delay between the forward and backward nudge of a single
-// cycle. It is an implementation detail of the there-and-back move, not a
-// user-facing setting, so it is a package constant rather than a parameter.
-const nudgePause = 40 * time.Millisecond
+// stepPause is the delay between successive MoveTo calls within a single
+// roam's glide path. It is an implementation detail of what makes the
+// motion look human (a brief burst of small moves), not a user-facing
+// setting, so it is a package constant rather than a parameter.
+const stepPause = 8 * time.Millisecond
 
-// KeeperService implements port.Keeper: it drives a ticker loop that nudges
-// the pointer there and back on each tick, and stops cleanly when ctx is
-// cancelled.
+// KeeperService implements port.Keeper: it drives a ticker loop that, on
+// each tick, roams the pointer to a fresh random on-screen target via a
+// planned glide path, and stops cleanly when ctx is cancelled.
 type KeeperService struct {
 	pointer  port.Pointer
 	logger   *slog.Logger
 	interval domain.Interval
-	offset   domain.Offset
+	planner  *domain.Planner
 }
 
-// NewKeeperService constructs a KeeperService. pointer and logger are injected
-// dependencies (never package globals), which is what makes this service
-// unit-testable without a real mouse or macOS Accessibility. interval and
-// offset are validated domain value objects, so the ticker can never receive a
-// non-positive duration and the two settings cannot be swapped by accident.
-func NewKeeperService(pointer port.Pointer, logger *slog.Logger, interval domain.Interval, offset domain.Offset) *KeeperService {
+// NewKeeperService constructs a KeeperService. pointer and logger are
+// injected dependencies (never package globals), which is what makes this
+// service unit-testable without a real mouse or macOS Accessibility.
+// interval is a validated domain value object, so the ticker can never
+// receive a non-positive duration. planner is the pure domain component
+// that turns a current position and screen bounds into a glide path.
+func NewKeeperService(pointer port.Pointer, logger *slog.Logger, interval domain.Interval, planner *domain.Planner) *KeeperService {
 	return &KeeperService{
 		pointer:  pointer,
 		logger:   logger,
 		interval: interval,
-		offset:   offset,
+		planner:  planner,
 	}
 }
 
-// Run starts the nudge ticker loop and blocks until ctx is done. On each tick
-// it nudges the pointer forward by offset, pauses, then nudges it back by the
-// same offset (there-and-back), so the cursor stays effectively in place while
-// a real move event is posted. Run returns nil on clean cancellation.
+// Run starts the roam ticker loop and blocks until ctx is done. On each tick
+// it plans and drives exactly one glide path to a fresh random on-screen
+// target. Run returns nil on clean cancellation, including cancellation that
+// lands in the middle of a glide.
 func (k *KeeperService) Run(ctx context.Context) error {
 	ticker := time.NewTicker(k.interval.Duration())
 	defer ticker.Stop()
 
-	offset := k.offset.Int()
 	k.logger.Info("sysmon started", "interval", k.interval.Duration())
 
 	for {
 		select {
 		case <-ticker.C:
-			k.nudgeCycle(ctx, offset)
-			// nudgeCycle has already run its compensating back-nudge (even if
-			// ctx was cancelled during the pause). If ctx is now done, stop
-			// here instead of waiting for the next tick.
+			k.roam(ctx)
+			// roam may have returned early because ctx was cancelled
+			// mid-glide. If so, stop here instead of waiting for the next
+			// tick.
 			if ctx.Err() != nil {
 				k.logger.Info("sysmon stopped")
 				return nil
@@ -70,26 +71,48 @@ func (k *KeeperService) Run(ctx context.Context) error {
 	}
 }
 
-// nudgeCycle performs one there-and-back nudge. The pause between the two
-// nudges is interruptible: if ctx is cancelled during it, the pause ends early
-// but the compensating back-nudge STILL runs, so the cursor returns to its
-// original position before shutdown. The only path that skips the back-nudge
-// is a failed forward nudge (the cursor never moved).
-func (k *KeeperService) nudgeCycle(ctx context.Context, offset int) {
-	if err := k.pointer.Nudge(offset, 0); err != nil {
-		// The forward nudge failed, so the cursor never moved -- do NOT send
-		// the compensating back-nudge, which would leave it offset the other
-		// way. Skipping it keeps the cursor where it was.
-		k.logger.Error("nudge failed", "err", err)
+// roam performs exactly one roam: read the current position and screen
+// bounds, ask the planner for a glide path, then drive the pointer through
+// that path in order with a short pause between steps. ctx is checked
+// between every step so a cancellation stops the glide promptly, without
+// making the remaining MoveTo calls. Errors from Position, Bounds, or
+// MoveTo are logged and abandon the current roam without crashing the
+// loop.
+func (k *KeeperService) roam(ctx context.Context) {
+	x, y, err := k.pointer.Position()
+	if err != nil {
+		k.logger.Error("read position failed", "err", err)
 		return
 	}
 
-	select {
-	case <-time.After(nudgePause):
-	case <-ctx.Done():
+	w, h, err := k.pointer.Bounds()
+	if err != nil {
+		k.logger.Error("read bounds failed", "err", err)
+		return
 	}
 
-	if err := k.pointer.Nudge(-offset, 0); err != nil {
-		k.logger.Error("nudge back failed", "err", err)
+	path, err := k.planner.Plan(x, y, w, h)
+	if err != nil {
+		k.logger.Error("plan glide path failed", "err", err)
+		return
+	}
+
+	k.drive(ctx, path)
+}
+
+// drive walks path in order, calling MoveTo for each point with a short
+// inter-step pause, stopping immediately if ctx is cancelled between steps.
+func (k *KeeperService) drive(ctx context.Context, path []domain.Point) {
+	for _, pt := range path {
+		if err := k.pointer.MoveTo(pt.X, pt.Y); err != nil {
+			k.logger.Error("move failed", "err", err)
+			return
+		}
+
+		select {
+		case <-time.After(stepPause):
+		case <-ctx.Done():
+			return
+		}
 	}
 }

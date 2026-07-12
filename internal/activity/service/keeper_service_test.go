@@ -18,10 +18,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// errNudge is a local sentinel used to simulate a Pointer failure in these
-// tests. It must never be adapter.ErrNudgeFailed: service tests stay
-// cgo-free and must not import internal/activity/adapter.
-var errNudge = errors.New("nudge sentinel failure")
+// errPointer is a local sentinel used to simulate a Pointer failure in these
+// tests. It must never be adapter.ErrNudgeFailed (or similar): service tests
+// stay cgo-free and must not import internal/activity/adapter.
+var errPointer = errors.New("pointer sentinel failure")
 
 // mustInterval builds a validated domain.Interval, failing the test on error.
 func mustInterval(t *testing.T, d time.Duration) domain.Interval {
@@ -31,81 +31,105 @@ func mustInterval(t *testing.T, d time.Duration) domain.Interval {
 	return iv
 }
 
-// mustOffset builds a validated domain.Offset, failing the test on error.
-func mustOffset(t *testing.T, px int) domain.Offset {
-	t.Helper()
-	off, err := domain.NewOffset(px)
-	require.NoError(t, err)
-	return off
+// stubSource is a hand-injected deterministic domain.RandomSource so the
+// planner (and therefore the expected MoveTo path) is exact and
+// reproducible in these service tests.
+type stubSource struct {
+	seq []int
+	i   int
 }
 
-func TestKeeperService_NudgesPerTick(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		pointer := mock.NewMockPointer(ctrl)
-
-		const (
-			interval = 10 * time.Second
-			ticks    = 3
-		)
-
-		gomock.InOrder(
-			pointer.EXPECT().Nudge(1, 0).Return(nil),
-			pointer.EXPECT().Nudge(-1, 0).Return(nil),
-			pointer.EXPECT().Nudge(1, 0).Return(nil),
-			pointer.EXPECT().Nudge(-1, 0).Return(nil),
-			pointer.EXPECT().Nudge(1, 0).Return(nil),
-			pointer.EXPECT().Nudge(-1, 0).Return(nil),
-		)
-
-		logger := slog.New(slog.DiscardHandler)
-		svc := service.NewKeeperService(pointer, logger, mustInterval(t, interval), mustOffset(t, 1))
-
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan error, 1)
-		go func() { done <- svc.Run(ctx) }()
-
-		time.Sleep(ticks * interval)
-		synctest.Wait()
-
-		cancel()
-		synctest.Wait()
-
-		require.NoError(t, <-done)
-	})
+func newStubSource(seq ...int) *stubSource {
+	return &stubSource{seq: seq}
 }
 
-// TestKeeperService_CompensatesOnCancelDuringPause exercises the exact path
-// added by review #1: cancellation landing strictly inside the inter-nudge
-// pause. The forward nudge triggers cancel(), so the pause select takes the
-// ctx.Done arm, and the compensating back-nudge must still fire before Run
-// returns.
-func TestKeeperService_CompensatesOnCancelDuringPause(t *testing.T) {
-	t.Parallel()
+func (s *stubSource) IntN(n int) int {
+	var v int
+	if s.i < len(s.seq) {
+		v = s.seq[s.i]
+		s.i++
+	} else if len(s.seq) > 0 {
+		v = s.seq[len(s.seq)-1]
+	}
+	if v >= n {
+		v = n - 1
+	}
+	if v < 0 {
+		v = 0
+	}
+	return v
+}
 
-	synctest.Test(t, func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		pointer := mock.NewMockPointer(ctrl)
+// mustPlanner builds a domain.Planner fed a stub source, so the path it
+// produces is deterministic and known ahead of time by the test.
+func mustPlanner(seq ...int) *domain.Planner {
+	return domain.NewPlanner(newStubSource(seq...))
+}
 
-		ctx, cancel := context.WithCancel(t.Context())
+// inOrder is a typed wrapper around gomock.InOrder, which takes ...any: it
+// lets call sites build a []*gomock.Call and spread it without a manual
+// per-test conversion loop.
+func inOrder(calls []*gomock.Call) {
+	args := make([]any, len(calls))
+	for i, c := range calls {
+		args[i] = c
+	}
+	gomock.InOrder(args...)
+}
 
-		gomock.InOrder(
-			pointer.EXPECT().Nudge(1, 0).DoAndReturn(func(_, _ int) error {
-				cancel() // cancel while we are about to enter the pause
+// expectPath sets up ordered gomock expectations for Position, Bounds, and
+// then a MoveTo call per point in path, returning nil errors throughout.
+// The last MoveTo invokes onLastMove (if non-nil) so tests can trigger a
+// side effect (e.g. cancel ctx) exactly once the whole path has been
+// driven.
+func expectPath(pointer *mock.MockPointer, curX, curY, w, h int, path []domain.Point, onLastMove func()) {
+	calls := []*gomock.Call{
+		pointer.EXPECT().Position().Return(curX, curY, nil),
+		pointer.EXPECT().Bounds().Return(w, h, nil),
+	}
+	for i, pt := range path {
+		if i == len(path)-1 && onLastMove != nil {
+			calls = append(calls, pointer.EXPECT().MoveTo(pt.X, pt.Y).DoAndReturn(func(_, _ int) error {
+				onLastMove()
 				return nil
-			}),
-			pointer.EXPECT().Nudge(-1, 0).Return(nil), // must still compensate
-		)
+			}))
+			continue
+		}
+		calls = append(calls, pointer.EXPECT().MoveTo(pt.X, pt.Y).Return(nil))
+	}
+	inOrder(calls)
+}
+
+func TestKeeperService_OneRoamPerTick_MoveToInOrder(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		pointer := mock.NewMockPointer(ctrl)
+
+		const interval = 10 * time.Second
+
+		// Two independent planners fed the identical draw sequence: one to
+		// precompute the expected path for the mock expectations, one wired
+		// into the service. They must be distinct instances -- calling Plan
+		// on the same *domain.Planner twice would advance its stub source
+		// twice and desync the service's actual draws from this precomputed
+		// path.
+		expectedPath, err := domain.NewPlanner(newStubSource(37, 12)).Plan(0, 0, 100, 50)
+		require.NoError(t, err)
+		planner := domain.NewPlanner(newStubSource(37, 12))
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		expectPath(pointer, 0, 0, 100, 50, expectedPath, cancel)
 
 		logger := slog.New(slog.DiscardHandler)
-		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), mustOffset(t, 1))
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, interval), planner)
 
 		done := make(chan error, 1)
 		go func() { done <- svc.Run(ctx) }()
 
-		time.Sleep(time.Second) // let exactly one tick fire
+		time.Sleep(interval)
 		synctest.Wait()
 
 		require.NoError(t, <-done)
@@ -119,8 +143,9 @@ func TestKeeperService_StopsOnContextCancel(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		pointer := mock.NewMockPointer(ctrl)
 
+		planner := mustPlanner(1, 1)
 		logger := slog.New(slog.DiscardHandler)
-		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), mustOffset(t, 1))
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), planner)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 1)
@@ -134,101 +159,181 @@ func TestKeeperService_StopsOnContextCancel(t *testing.T) {
 	})
 }
 
-// TestKeeperService_ForwardNudgeFailureSkipsBackNudge exercises nudgeCycle's
-// early-return path: when the forward nudge fails, the cursor never moved,
-// so the compensating back-nudge (-1, 0) must NOT be sent. The failing call
-// also cancels ctx (via DoAndReturn) so Run observes ctx.Err() != nil right
-// after nudgeCycle returns and stops without waiting for another tick.
-func TestKeeperService_ForwardNudgeFailureSkipsBackNudge(t *testing.T) {
+// TestKeeperService_MidGlideCancelStopsPromptly cancels ctx after exactly N
+// MoveTo calls have landed and asserts no further MoveTo calls are made --
+// the core "interruptible mid-glide" guarantee.
+func TestKeeperService_MidGlideCancelStopsPromptly(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		pointer := mock.NewMockPointer(ctrl)
 
-		ctx, cancel := context.WithCancel(t.Context())
+		path, err := domain.NewPlanner(newStubSource(80, 40)).Plan(0, 0, 100, 100)
+		require.NoError(t, err)
+		require.Greater(t, len(path), 5, "test needs a path long enough to cancel partway through")
+		planner := domain.NewPlanner(newStubSource(80, 40))
 
-		pointer.EXPECT().Nudge(1, 0).DoAndReturn(func(_, _ int) error {
-			cancel()
-			return errNudge
-		})
-		// No expectation for Nudge(-1, 0): gomock's controller will fail the
-		// test if it is called, since only the forward nudge was recorded.
-
-		logger := slog.New(slog.DiscardHandler)
-		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), mustOffset(t, 1))
-
-		done := make(chan error, 1)
-		go func() { done <- svc.Run(ctx) }()
-
-		time.Sleep(time.Second) // let exactly one tick fire
-		synctest.Wait()
-
-		require.NoError(t, <-done)
-	})
-}
-
-// TestKeeperService_BackNudgeFailureIsTolerated asserts that a failed back
-// nudge is logged but does not stop the loop: the second tick still runs
-// both nudges normally.
-func TestKeeperService_BackNudgeFailureIsTolerated(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		pointer := mock.NewMockPointer(ctrl)
+		const cancelAfter = 3
 
 		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
 
-		gomock.InOrder(
-			pointer.EXPECT().Nudge(1, 0).Return(nil),
-			pointer.EXPECT().Nudge(-1, 0).Return(errNudge),
-			pointer.EXPECT().Nudge(1, 0).Return(nil),
-			pointer.EXPECT().Nudge(-1, 0).DoAndReturn(func(_, _ int) error {
-				cancel()
-				return nil
-			}),
-		)
-
-		logger := slog.New(slog.DiscardHandler)
-		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), mustOffset(t, 1))
-
-		done := make(chan error, 1)
-		go func() { done <- svc.Run(ctx) }()
-
-		time.Sleep(2 * time.Second) // let two ticks fire
-		synctest.Wait()
-
-		require.NoError(t, <-done)
-	})
-}
-
-// TestKeeperService_CustomOffset asserts that a non-default Offset value is
-// forwarded verbatim to Pointer.Nudge in both directions.
-func TestKeeperService_CustomOffset(t *testing.T) {
-	t.Parallel()
-
-	synctest.Test(t, func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		pointer := mock.NewMockPointer(ctrl)
-
-		ctx, cancel := context.WithCancel(t.Context())
-
-		gomock.InOrder(
-			pointer.EXPECT().Nudge(3, 0).Return(nil),
-			pointer.EXPECT().Nudge(-3, 0).DoAndReturn(func(_, _ int) error {
-				cancel()
-				return nil
-			}),
-		)
+		calls := []*gomock.Call{
+			pointer.EXPECT().Position().Return(0, 0, nil),
+			pointer.EXPECT().Bounds().Return(100, 100, nil),
+		}
+		for i := range cancelAfter {
+			pt := path[i]
+			if i == cancelAfter-1 {
+				calls = append(calls, pointer.EXPECT().MoveTo(pt.X, pt.Y).DoAndReturn(func(_, _ int) error {
+					cancel()
+					return nil
+				}))
+				continue
+			}
+			calls = append(calls, pointer.EXPECT().MoveTo(pt.X, pt.Y).Return(nil))
+		}
+		inOrder(calls)
+		// No expectations for path[cancelAfter:] -- gomock's controller fails
+		// the test if any of those MoveTo calls are made.
 
 		logger := slog.New(slog.DiscardHandler)
-		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), mustOffset(t, 3))
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), planner)
 
 		done := make(chan error, 1)
 		go func() { done <- svc.Run(ctx) }()
 
 		time.Sleep(time.Second)
+		synctest.Wait()
+
+		require.NoError(t, <-done)
+	})
+}
+
+// TestKeeperService_PositionErrorAbandonsTickWithoutCrash asserts a
+// Position failure is logged and the tick is abandoned (no Bounds/MoveTo
+// calls), without crashing the loop.
+func TestKeeperService_PositionErrorAbandonsTickWithoutCrash(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		pointer := mock.NewMockPointer(ctrl)
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		pointer.EXPECT().Position().DoAndReturn(func() (int, int, error) {
+			cancel()
+			return 0, 0, errPointer
+		})
+		// No Bounds/MoveTo expectations: gomock fails the test if called.
+
+		planner := mustPlanner(1, 1)
+		logger := slog.New(slog.DiscardHandler)
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), planner)
+
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(ctx) }()
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+
+		require.NoError(t, <-done)
+	})
+}
+
+// TestKeeperService_BoundsErrorAbandonsTickWithoutCrash asserts a Bounds
+// failure is logged and the tick is abandoned (no MoveTo calls), without
+// crashing the loop.
+func TestKeeperService_BoundsErrorAbandonsTickWithoutCrash(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		pointer := mock.NewMockPointer(ctrl)
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		pointer.EXPECT().Position().Return(5, 5, nil)
+		pointer.EXPECT().Bounds().DoAndReturn(func() (int, int, error) {
+			cancel()
+			return 0, 0, errPointer
+		})
+		// No MoveTo expectations: gomock fails the test if called.
+
+		planner := mustPlanner(1, 1)
+		logger := slog.New(slog.DiscardHandler)
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), planner)
+
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(ctx) }()
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+
+		require.NoError(t, <-done)
+	})
+}
+
+// TestKeeperService_MoveErrorAbandonsRoamAndContinues asserts a MoveTo
+// failure partway through a path is logged and stops that roam early, but
+// the loop continues to the next tick and roams normally there.
+func TestKeeperService_MoveErrorAbandonsRoamAndContinues(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		pointer := mock.NewMockPointer(ctrl)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		// Draw sequence covers both ticks: (1,1) is the first tick's target,
+		// (7,3) is the second's. The planner wired into the service draws
+		// both in order across its two Plan calls (one per tick), so a
+		// second, independently-seeded planner with the SAME sequence is
+		// used here purely to precompute the expected paths -- reusing the
+		// service's own planner instance would double-consume the sequence.
+		firstPath, err := domain.NewPlanner(newStubSource(1, 1, 7, 3)).Plan(0, 0, 10, 10)
+		require.NoError(t, err)
+		planner := domain.NewPlanner(newStubSource(1, 1, 7, 3))
+
+		// First tick: Position/Bounds succeed, first MoveTo fails -> roam
+		// abandoned, no further MoveTo calls this tick.
+		gomock.InOrder(
+			pointer.EXPECT().Position().Return(0, 0, nil),
+			pointer.EXPECT().Bounds().Return(10, 10, nil),
+			pointer.EXPECT().MoveTo(firstPath[0].X, firstPath[0].Y).Return(errPointer),
+		)
+
+		// Second tick: full roam succeeds normally; last MoveTo cancels ctx.
+		secondPath, err := domain.NewPlanner(newStubSource(7, 3)).Plan(2, 2, 10, 10)
+		require.NoError(t, err)
+
+		secondCalls := []*gomock.Call{
+			pointer.EXPECT().Position().Return(2, 2, nil),
+			pointer.EXPECT().Bounds().Return(10, 10, nil),
+		}
+		for i, pt := range secondPath {
+			if i == len(secondPath)-1 {
+				secondCalls = append(secondCalls, pointer.EXPECT().MoveTo(pt.X, pt.Y).DoAndReturn(func(_, _ int) error {
+					cancel()
+					return nil
+				}))
+				continue
+			}
+			secondCalls = append(secondCalls, pointer.EXPECT().MoveTo(pt.X, pt.Y).Return(nil))
+		}
+		inOrder(secondCalls)
+
+		logger := slog.New(slog.DiscardHandler)
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), planner)
+
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(ctx) }()
+
+		time.Sleep(2 * time.Second)
 		synctest.Wait()
 
 		require.NoError(t, <-done)
@@ -284,15 +389,15 @@ func TestKeeperService_LogsStartAndStop(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(t.Context())
 
-		pointer.EXPECT().Nudge(1, 0).Return(nil)
-		pointer.EXPECT().Nudge(-1, 0).DoAndReturn(func(_, _ int) error {
-			cancel()
-			return nil
-		})
+		path, err := domain.NewPlanner(newStubSource(1, 1)).Plan(0, 0, 10, 10)
+		require.NoError(t, err)
+		planner := domain.NewPlanner(newStubSource(1, 1))
+
+		expectPath(pointer, 0, 0, 10, 10, path, cancel)
 
 		handler := newCapturingHandler()
 		logger := slog.New(handler)
-		svc := service.NewKeeperService(pointer, logger, mustInterval(t, interval), mustOffset(t, 1))
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, interval), planner)
 
 		done := make(chan error, 1)
 		go func() { done <- svc.Run(ctx) }()
