@@ -1,13 +1,15 @@
 // Command sysmon keeps macOS "active" by posting a real mouse-move event on a
 // fixed interval, which resets the system idle timer so the screen does not
-// sleep. The cursor is nudged one pixel and back, so it stays effectively in
-// place.
+// sleep. On each interval the cursor glides to a fresh random on-screen
+// point over several small steps, so the motion looks like a person actually
+// moving the mouse.
 package main
 
 import (
 	"context"
 	"flag"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,12 +20,8 @@ import (
 	"sysmon/internal/activity/service"
 )
 
-const (
-	// defaultInterval is how often the cursor is nudged by default.
-	defaultInterval = 10 * time.Second
-	// nudgeOffset is the pixel shift applied then reversed on each nudge.
-	nudgeOffset = 1
-)
+// defaultInterval is how often the cursor roams by default.
+const defaultInterval = 10 * time.Second
 
 // Process exit codes.
 const (
@@ -40,7 +38,7 @@ func main() {
 // the process exit code. It is separated from main so that deferred cleanup
 // (stopping the signal-notify context) always runs before the process exits.
 func run() int {
-	interval := flag.Duration("interval", defaultInterval, "how often to nudge the cursor (e.g. 10s, 30s, 1m)")
+	interval := flag.Duration("interval", defaultInterval, "how often to roam the cursor to a new random point (e.g. 10s, 30s, 1m)")
 	quiet := flag.Bool("quiet", false, "suppress routine logs; still print warnings and errors")
 	flag.Parse()
 
@@ -58,14 +56,6 @@ func run() int {
 		logger.Error("invalid interval", "err", err, "value", interval.String())
 		return exitUsage
 	}
-	// nudgeOffset is a positive compile-time constant, so this never errors
-	// today; it still goes through the domain constructor so the offset is
-	// validated the same way as the interval.
-	offset, err := domain.NewOffset(nudgeOffset)
-	if err != nil {
-		logger.Error("invalid offset", "err", err, "value", nudgeOffset)
-		return exitUsage
-	}
 
 	// Preflight: without Accessibility permission macOS silently drops the
 	// synthetic mouse events, so warn once at startup rather than looking like
@@ -78,7 +68,14 @@ func run() int {
 	defer stop()
 
 	pointer := adapter.NewCGPointer()
-	keeper := service.NewKeeperService(pointer, logger, validInterval, offset)
+	// rand.NewPCG is seeded from the package-level generator, which
+	// math/rand/v2 auto-seeds from a nondeterministic runtime source. This
+	// gives the planner real runtime randomness while staying stdlib-only.
+	// Cursor-roaming targets are not security-sensitive, so a
+	// non-cryptographic PRNG is the right, stdlib-only tool here.
+	rnd := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // roaming targets are not security-sensitive
+	planner := domain.NewPlanner(rnd)
+	keeper := service.NewKeeperService(pointer, logger, validInterval, planner)
 
 	if err := keeper.Run(ctx); err != nil {
 		logger.Error("sysmon exited with error", "err", err)

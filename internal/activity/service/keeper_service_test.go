@@ -19,7 +19,7 @@ import (
 )
 
 // errPointer is a local sentinel used to simulate a Pointer failure in these
-// tests. It must never be adapter.ErrNudgeFailed (or similar): service tests
+// tests. It must never be one of adapter's error sentinels: service tests
 // stay cgo-free and must not import internal/activity/adapter.
 var errPointer = errors.New("pointer sentinel failure")
 
