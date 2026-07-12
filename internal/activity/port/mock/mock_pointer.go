@@ -39,16 +39,48 @@ func (m *MockPointer) EXPECT() *MockPointerMockRecorder {
 	return m.recorder
 }
 
-// Nudge mocks base method.
-func (m *MockPointer) Nudge(dx, dy int) error {
+// Bounds mocks base method.
+func (m *MockPointer) Bounds() (int, int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Nudge", dx, dy)
+	ret := m.ctrl.Call(m, "Bounds")
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Bounds indicates an expected call of Bounds.
+func (mr *MockPointerMockRecorder) Bounds() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Bounds", reflect.TypeOf((*MockPointer)(nil).Bounds))
+}
+
+// MoveTo mocks base method.
+func (m *MockPointer) MoveTo(x, y int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MoveTo", x, y)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Nudge indicates an expected call of Nudge.
-func (mr *MockPointerMockRecorder) Nudge(dx, dy any) *gomock.Call {
+// MoveTo indicates an expected call of MoveTo.
+func (mr *MockPointerMockRecorder) MoveTo(x, y any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Nudge", reflect.TypeOf((*MockPointer)(nil).Nudge), dx, dy)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MoveTo", reflect.TypeOf((*MockPointer)(nil).MoveTo), x, y)
+}
+
+// Position mocks base method.
+func (m *MockPointer) Position() (int, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Position")
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Position indicates an expected call of Position.
+func (mr *MockPointerMockRecorder) Position() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Position", reflect.TypeOf((*MockPointer)(nil).Position))
 }
