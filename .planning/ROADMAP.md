@@ -18,10 +18,11 @@ Milestone: v1 — Hexagonal Refactor
   3. `KeeperService` (in `service`) depends only on `domain` and `port` types, never imports `adapter`, and runs the tick loop via the `Keeper`/`Pointer` interfaces
   4. `CGPointer` adapter implements `Pointer` using cgo/CoreGraphics and is isolated behind a `//go:build darwin` tag
   5. `go build` succeeds, all Makefile targets (build/run/start/stop/status/clean) work unchanged, and `go test ./...` passes a `KeeperService` unit test using a fake `Pointer` that verifies nudges fire on the interval without moving the real mouse and without requiring macOS Accessibility permission
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 01-01-PLAN.md — Restructure flat main.go into cmd/sysmon + internal/activity {domain,port,service,adapter}, add mockgen+testify+synctest unit test, inject slog logging, update Makefile, remove root main.go; behavior preserved
 
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Hexagonal Refactor | 0/? | Not started | - |
+| 1. Hexagonal Refactor | 0/1 | Not started | - |
