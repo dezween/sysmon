@@ -106,8 +106,11 @@ func (k *KeeperService) roam(ctx context.Context) {
 // inter-step pause, stopping immediately if ctx is cancelled between steps.
 func (k *KeeperService) drive(ctx context.Context, path []domain.Point) {
 	// Reuse one timer across the whole glide instead of allocating a fresh
-	// one per step (time.After), keeping the burst lightweight.
+	// one per step (time.After), keeping the burst lightweight. Start it
+	// stopped so the first inter-step gap is exactly stepPause (not
+	// stepPause plus the first MoveTo's duration).
 	timer := time.NewTimer(stepPause)
+	timer.Stop()
 	defer timer.Stop()
 
 	for _, pt := range path {

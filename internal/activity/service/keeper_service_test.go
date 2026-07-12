@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	mathrand "math/rand/v2"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -433,5 +434,48 @@ func TestKeeperService_LogsStartAndStop(t *testing.T) {
 
 		assert.True(t, sawStarted, "expected a sysmon started record")
 		assert.True(t, sawStopped, "expected a sysmon stopped record")
+	})
+}
+
+// TestKeeperService_RoamStaysInBoundsFromOutOfBoundsStart asserts the
+// service-to-adapter "never off-screen" contract at that seam: even when
+// Position() reports an out-of-bounds start (as a multi-monitor Mac does with
+// global desktop coordinates), every MoveTo the service issues lands inside
+// [0, w) x [0, h).
+func TestKeeperService_RoamStaysInBoundsFromOutOfBoundsStart(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		const w, h = 1920, 1080
+
+		ctrl := gomock.NewController(t)
+		pointer := mock.NewMockPointer(ctrl)
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		pointer.EXPECT().Position().Return(-500, 5000, nil)
+		pointer.EXPECT().Bounds().Return(w, h, nil)
+		pointer.EXPECT().MoveTo(gomock.Any(), gomock.Any()).DoAndReturn(func(x, y int) error {
+			assert.GreaterOrEqual(t, x, 0)
+			assert.Less(t, x, w)
+			assert.GreaterOrEqual(t, y, 0)
+			assert.Less(t, y, h)
+			return nil
+		}).MinTimes(1)
+
+		logger := slog.New(slog.DiscardHandler)
+		planner := domain.NewPlanner(mathrand.New(mathrand.NewPCG(1, 2))) //nolint:gosec // test randomness, not security
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), planner)
+
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(ctx) }()
+
+		time.Sleep(time.Second) // let exactly one roam fire
+		synctest.Wait()
+
+		cancel()
+		synctest.Wait()
+
+		require.NoError(t, <-done)
 	})
 }
