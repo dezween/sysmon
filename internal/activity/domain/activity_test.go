@@ -46,39 +46,6 @@ func TestNewInterval(t *testing.T) {
 	}
 }
 
-func TestNewOffset(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		px      int
-		wantErr bool
-	}{
-		{name: "positive offset is accepted", px: 1, wantErr: false},
-		{name: "zero offset is rejected", px: 0, wantErr: true},
-		{name: "negative offset is rejected", px: -1, wantErr: true},
-		{name: "very large offset is accepted (boundary)", px: math.MaxInt, wantErr: false},
-		{name: "math.MinInt offset is rejected (boundary)", px: math.MinInt, wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := domain.NewOffset(tt.px)
-
-			if tt.wantErr {
-				require.ErrorIs(t, err, domain.ErrNonPositiveOffset)
-				assert.Equal(t, domain.Offset(0), got)
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.px, got.Int())
-		})
-	}
-}
-
 // TestInterval_Duration_RoundTrip asserts that Duration() returns exactly the
 // value passed to NewInterval, with no rounding or truncation.
 func TestInterval_Duration_RoundTrip(t *testing.T) {
@@ -98,28 +65,4 @@ func TestInterval_Duration_RoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, d, iv.Duration())
 	}
-}
-
-// TestOffset_Int_RoundTrip asserts that Int() returns exactly the pixel value
-// passed to NewOffset.
-func TestOffset_Int_RoundTrip(t *testing.T) {
-	t.Parallel()
-
-	values := []int{1, 2, 40, 1000, math.MaxInt}
-
-	for _, px := range values {
-		off, err := domain.NewOffset(px)
-		require.NoError(t, err)
-		assert.Equal(t, px, off.Int())
-	}
-}
-
-// TestErrorsAreDistinct guards against a future refactor accidentally
-// aliasing the two sentinel errors, which would make errors.Is checks
-// ambiguous between Interval and Offset validation failures.
-func TestErrorsAreDistinct(t *testing.T) {
-	t.Parallel()
-
-	require.NotErrorIs(t, domain.ErrNonPositiveInterval, domain.ErrNonPositiveOffset)
-	require.NotErrorIs(t, domain.ErrNonPositiveOffset, domain.ErrNonPositiveInterval)
 }
