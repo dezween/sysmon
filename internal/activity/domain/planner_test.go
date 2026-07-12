@@ -163,31 +163,47 @@ func TestPlanner_Plan_EdgeCase_CursorAlreadyAtCorner(t *testing.T) {
 	}
 }
 
-// TestPlanner_Plan_EdgeCase_OnePixelScreen covers a 1x1 screen: the only
-// valid point is (0, 0), so every path point must be (0, 0).
 // TestPlanner_Plan_ClampsOutOfBoundsStart verifies that a starting position
 // outside the display bounds -- as Position() can report on a multi-monitor
-// setup -- is clamped, so no glide step lands off the main display.
+// setup -- is clamped, so no glide step lands off the main display. It covers
+// negative, far-positive, and exact-boundary (curX == width) starts.
 func TestPlanner_Plan_ClampsOutOfBoundsStart(t *testing.T) {
 	t.Parallel()
 
 	const w, h = 1920, 1080
 
-	p := domain.NewPlanner(newStubSource(100, 200))
+	starts := []struct {
+		name       string
+		curX, curY int
+	}{
+		{"negative both", -500, -9000},
+		{"far positive both", 999999, 5000},
+		{"exact boundary equals size", w, h},
+		{"mixed sign", -1, h + 1},
+	}
 
-	// Start far off-screen in both the negative and positive directions.
-	path, err := p.Plan(-500, 5000, w, h)
-	require.NoError(t, err)
-	require.NotEmpty(t, path)
+	for _, s := range starts {
+		t.Run(s.name, func(t *testing.T) {
+			t.Parallel()
 
-	for _, pt := range path {
-		assert.GreaterOrEqual(t, pt.X, 0)
-		assert.Less(t, pt.X, w)
-		assert.GreaterOrEqual(t, pt.Y, 0)
-		assert.Less(t, pt.Y, h)
+			p := domain.NewPlanner(newStubSource(100, 200))
+
+			path, err := p.Plan(s.curX, s.curY, w, h)
+			require.NoError(t, err)
+			require.NotEmpty(t, path)
+
+			for _, pt := range path {
+				assert.GreaterOrEqual(t, pt.X, 0)
+				assert.Less(t, pt.X, w)
+				assert.GreaterOrEqual(t, pt.Y, 0)
+				assert.Less(t, pt.Y, h)
+			}
+		})
 	}
 }
 
+// TestPlanner_Plan_EdgeCase_OnePixelScreen covers a 1x1 screen: the only valid
+// point is (0, 0), so every path point must be (0, 0).
 func TestPlanner_Plan_EdgeCase_OnePixelScreen(t *testing.T) {
 	t.Parallel()
 
