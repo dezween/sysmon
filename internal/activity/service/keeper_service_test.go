@@ -341,6 +341,84 @@ func TestKeeperService_MoveErrorAbandonsRoamAndContinues(t *testing.T) {
 	})
 }
 
+// TestKeeperService_InvalidBoundsAbandonsTickWithoutCrash asserts that when
+// Bounds() returns a non-positive dimension, the real domain.Planner rejects
+// it with domain.ErrInvalidBounds, roam logs the error and abandons the
+// tick, and no MoveTo call is ever made. A real planner (backed by a PCG
+// source) is used here rather than the stub, since the point under test is
+// Plan's own bounds validation, not a specific stubbed draw.
+func TestKeeperService_InvalidBoundsAbandonsTickWithoutCrash(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		pointer := mock.NewMockPointer(ctrl)
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		pointer.EXPECT().Position().Return(0, 0, nil)
+		pointer.EXPECT().Bounds().DoAndReturn(func() (int, int, error) {
+			cancel()
+			return 0, 0, nil
+		})
+		// No MoveTo expectations: gomock fails the test if called, since
+		// Plan must reject (0, 0) bounds with domain.ErrInvalidBounds before
+		// any glide step is produced.
+
+		planner := domain.NewPlanner(mathrand.New(mathrand.NewPCG(1, 2))) //nolint:gosec // test randomness, not security
+		logger := slog.New(slog.DiscardHandler)
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), planner)
+
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(ctx) }()
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+
+		require.NoError(t, <-done)
+	})
+}
+
+// TestKeeperService_MoveErrorOnFirstStepAbandonsGlideImmediately asserts
+// that when the very first MoveTo of a roam fails, drive stops immediately:
+// no subsequent MoveTo call is made for the rest of that path, and Run still
+// returns nil since the failure is only logged, not propagated.
+func TestKeeperService_MoveErrorOnFirstStepAbandonsGlideImmediately(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		pointer := mock.NewMockPointer(ctrl)
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		path, err := domain.NewPlanner(newStubSource(80, 40)).Plan(0, 0, 100, 100)
+		require.NoError(t, err)
+		require.Greater(t, len(path), 1, "test needs at least one further step that must NOT be called")
+		planner := domain.NewPlanner(newStubSource(80, 40))
+
+		pointer.EXPECT().Position().Return(0, 0, nil)
+		pointer.EXPECT().Bounds().Return(100, 100, nil)
+		pointer.EXPECT().MoveTo(path[0].X, path[0].Y).DoAndReturn(func(_, _ int) error {
+			cancel()
+			return errPointer
+		})
+		// No further MoveTo expectations: gomock fails the test if any of
+		// path[1:] is ever called.
+
+		logger := slog.New(slog.DiscardHandler)
+		svc := service.NewKeeperService(pointer, logger, mustInterval(t, time.Second), planner)
+
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(ctx) }()
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+
+		require.NoError(t, <-done)
+	})
+}
+
 // capturingHandler is a minimal, race-safe slog.Handler that records every
 // Handle call so tests can assert on emitted log records. It is not a
 // hand-written fake of a domain dependency (which the test stack forbids) --

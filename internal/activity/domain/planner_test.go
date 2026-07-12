@@ -244,6 +244,72 @@ func TestPlanner_Plan_EdgeCase_TargetEqualsCurrent(t *testing.T) {
 	assert.Equal(t, 17, last.Y)
 }
 
+// TestPlanner_Plan_VeryLargeScreen covers a very large screen resolution
+// (e.g. a wide multi-monitor span): the target must still land within
+// bounds and the path must end exactly at it.
+func TestPlanner_Plan_VeryLargeScreen(t *testing.T) {
+	t.Parallel()
+
+	const w, h = 8000, 5000
+
+	rnd := newStubSource(7999, 4999)
+	p := domain.NewPlanner(rnd)
+
+	path, err := p.Plan(0, 0, w, h)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, path)
+
+	last := path[len(path)-1]
+	assert.Equal(t, 7999, last.X)
+	assert.Equal(t, 4999, last.Y)
+
+	for _, pt := range path {
+		assert.GreaterOrEqual(t, pt.X, 0)
+		assert.Less(t, pt.X, w)
+		assert.GreaterOrEqual(t, pt.Y, 0)
+		assert.Less(t, pt.Y, h)
+	}
+}
+
+// TestPlanner_Plan_BoundedStepDeltaFarStartToFarTarget asserts that gliding
+// across a very large screen -- from one far corner to the opposite one --
+// still produces a path where every consecutive step's delta is bounded
+// (no single giant jump), by checking the largest observed step is well
+// under a naive direct-distance/1 jump.
+func TestPlanner_Plan_BoundedStepDeltaFarStartToFarTarget(t *testing.T) {
+	t.Parallel()
+
+	const w, h = 8000, 5000
+
+	rnd := newStubSource(w-1, h-1)
+	p := domain.NewPlanner(rnd)
+
+	path, err := p.Plan(0, 0, w, h)
+	require.NoError(t, err)
+	require.NotEmpty(t, path)
+
+	// A single unbounded jump would be up to ~(w-1) or ~(h-1) in one step.
+	// With stepCount steps spreading the distance evenly, each step should
+	// be roughly distance/stepCount; allow a generous margin above that.
+	const maxStepMagnitude = 500
+
+	prevX, prevY := 0, 0
+	for _, pt := range path {
+		dx := pt.X - prevX
+		if dx < 0 {
+			dx = -dx
+		}
+		dy := pt.Y - prevY
+		if dy < 0 {
+			dy = -dy
+		}
+		assert.LessOrEqual(t, dx, maxStepMagnitude, "step in X exceeded bounded magnitude")
+		assert.LessOrEqual(t, dy, maxStepMagnitude, "step in Y exceeded bounded magnitude")
+		prevX, prevY = pt.X, pt.Y
+	}
+}
+
 // TestPlanner_Plan_DeterministicGivenSameSource asserts that two Planners
 // fed the same sequence of draws produce byte-for-byte identical paths --
 // the core determinism guarantee the injected RandomSource seam exists for.
@@ -259,4 +325,23 @@ func TestPlanner_Plan_DeterministicGivenSameSource(t *testing.T) {
 	require.NoError(t, err1)
 	require.NoError(t, err2)
 	assert.Equal(t, path1, path2)
+}
+
+// TestPlanner_Plan_DifferentSeedProducesDifferentPath complements
+// TestPlanner_Plan_DeterministicGivenSameSource: a different draw sequence
+// (different "seed") from the same starting position must produce a
+// distinct path, confirming the path is actually a function of the injected
+// randomness rather than a constant.
+func TestPlanner_Plan_DifferentSeedProducesDifferentPath(t *testing.T) {
+	t.Parallel()
+
+	p1 := domain.NewPlanner(newStubSource(55, 23))
+	p2 := domain.NewPlanner(newStubSource(90, 61))
+
+	path1, err1 := p1.Plan(10, 10, 200, 150)
+	path2, err2 := p2.Plan(10, 10, 200, 150)
+
+	require.NoError(t, err1)
+	require.NoError(t, err2)
+	assert.NotEqual(t, path1, path2)
 }
