@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-07-12)
 Phase: 1 of 1 (Hexagonal Refactor)
 Plan: 0 of ? in current phase
 Status: Ready to plan
-Last activity: 2026-07-12 — Roadmap created
+Last activity: 2026-08-26 — Quick task 260826-pn8 (hardened Makefile start/stop/status/clean)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -54,7 +54,11 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - Hexagonal architecture (like a larger Go monorepo) chosen for testability and portability — pending validation via Phase 1.
-- pidfile-based start/stop in Makefile retained as-is (not touched by this refactor).
+- ~~pidfile-based start/stop in Makefile retained as-is (not touched by this refactor).~~
+  **Superseded 2026-08-26 by quick task 260826-pn8.** The pidfile is kept as a convenience
+  label, but liveness is now determined by an exact-name, current-user `pgrep -x -U $(id -u)
+  sysmon` scan; the pidfile is trusted only when corroborated by that scan. Driven by a real
+  orphan that survived `make stop` for 7 days while the command reported "sysmon is not running".
 
 ### Pending Todos
 
@@ -63,6 +67,12 @@ None yet.
 ### Blockers/Concerns
 
 None yet.
+
+## Quick Tasks Completed
+
+| ID | Task | Date | Status |
+|----|------|------|--------|
+| 260826-pn8 | Harden Makefile start/stop/status/clean against orphaned processes | 2026-08-26 | Complete |
 
 ## Deferred Items
 
@@ -76,6 +86,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-12
-Stopped at: Roadmap and state initialized; ready for `/gsd-plan-phase 1`
+Last session: 2026-08-26
+Stopped at: Quick task 260826-pn8 complete; Phase 1 still ready for `/gsd-plan-phase 1`
 Resume file: None
