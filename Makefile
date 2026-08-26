@@ -21,6 +21,17 @@ run: build
 
 ## start: build and run in the background with no window
 start: build
+	@tracked=$$(cat $(PIDFILE) 2>/dev/null || true); \
+	if [ -n "$$tracked" ] && kill -0 "$$tracked" 2>/dev/null && $(PGREP) 2>/dev/null | grep -qxF "$$tracked"; then \
+		echo "sysmon: already running, tracked as PID $$tracked -- run 'make stop' first" >&2; \
+		exit 1; \
+	fi; \
+	live=$$($(PGREP) 2>/dev/null || true); \
+	if [ -n "$$live" ]; then \
+		livelist=$$(echo $$live); \
+		echo "sysmon: already running, untracked PID(s) $$livelist -- run 'make stop' first" >&2; \
+		exit 1; \
+	fi
 	@nohup ./$(BINARY) -quiet -interval $(INTERVAL) >/dev/null 2>&1 & echo $$! > $(PIDFILE)
 	@echo "sysmon started in the background (PID $$(cat $(PIDFILE)), interval $(INTERVAL))"
 
@@ -59,12 +70,23 @@ stop:
 	rm -f $(PIDFILE); \
 	echo "sysmon: stopped (PID(s) $$livelist)"
 
-## status: check whether it is running
+## status: report live processes, not just pidfile state
 status:
-	@if [ -f $(PIDFILE) ] && kill -0 $$(cat $(PIDFILE)) 2>/dev/null; then \
-		echo "sysmon is running (PID $$(cat $(PIDFILE)))"; \
+	@live=$$($(PGREP) 2>/dev/null || true); \
+	tracked=$$(cat $(PIDFILE) 2>/dev/null || true); \
+	if [ -z "$$live" ] && [ -z "$$tracked" ]; then \
+		echo "sysmon: not running"; \
+	elif [ -z "$$live" ] && [ -n "$$tracked" ]; then \
+		echo "sysmon: not running (stale pidfile -> PID $$tracked; run 'make stop' to clear)"; \
+	elif [ -n "$$tracked" ] && echo "$$live" | grep -qxF "$$tracked"; then \
+		echo "sysmon: running, tracked (PID $$tracked)"; \
+		others=$$(echo "$$live" | grep -vxF "$$tracked" || true); \
+		if [ -n "$$others" ]; then \
+			echo "sysmon: warning -- extra untracked PID(s) $$others"; \
+		fi; \
 	else \
-		echo "sysmon is not running"; \
+		livelist=$$(echo $$live); \
+		echo "sysmon: running, UNTRACKED (PID(s) $$livelist) -- run 'make stop'"; \
 	fi
 
 ## clean: remove the built binary
